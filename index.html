@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VONGOLA 手套 · 实时叠加</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div id="stage">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="fire-canvas"></canvas>
+    <canvas id="gl-canvas"></canvas>
+  </div>
+
+  <div id="status">正在启动…</div>
+  <div id="hint">握拳点火 · 张手熄灭 · 支持双手</div>
+  <button id="flip-btn" title="左右手镜像翻转">⇄</button>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.js",
+      "three/addons/": "./vendor/addons/"
+    }
+  }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

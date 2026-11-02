@@ -1,0 +1,13 @@
+# local test screenshots
+_*.png
+
+# local assistant / editor config
+.claude/
+.vscode/
+.idea/
+
+# dependencies and OS junk
+node_modules/
+Thumbs.db
+.DS_Store
+*.log
