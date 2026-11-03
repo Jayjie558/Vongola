@@ -1,4 +1,11 @@
 export const CONFIG = {
+  // 'glow': a closed fist only makes the glove glow. 'flame': the sphere flame.
+  defaultMode: 'glow',
+  gloveGlowColor: 0xffa64d,
+  gloveGlowStrength: 1.0,
+  gloveGlowPower: 2.0,
+  gloveGlowPulse: 0.12,
+
   targetFps: 30,
   maxHands: 2,
   minDetectionConfidence: 0.5,

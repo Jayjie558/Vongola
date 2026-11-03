@@ -62,6 +62,41 @@ body {
   pointer-events: none;
 }
 
+#mode-btn {
+  position: fixed;
+  right: 18px;
+  bottom: 70px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 21px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ccc;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+#mode-btn[data-mode="glow"] {
+  color: #ffb45f;
+  border-color: rgba(255, 150, 60, 0.45);
+}
+
+#mode-btn[data-mode="flame"] {
+  color: #ffd98f;
+  border-color: rgba(255, 200, 90, 0.55);
+}
+
+#mode-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
 #flip-btn {
   position: fixed;
   right: 18px;

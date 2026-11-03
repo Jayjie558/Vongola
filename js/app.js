@@ -10,6 +10,7 @@ import { Retarget, mirrorFromLabel } from './retarget.js';
 import { startTracking } from './hand-tracker.js';
 import { FireSystem } from './fire.js';
 import { FlameRig } from './flame3d.js';
+import { GloveGlow } from './glove-glow.js';
 
 const video = document.getElementById('webcam');
 const canvas = document.getElementById('gl-canvas');
@@ -17,6 +18,15 @@ const fireCanvas = document.getElementById('fire-canvas');
 const statusEl = document.getElementById('status');
 const hintEl = document.getElementById('hint');
 const flipBtn = document.getElementById('flip-btn');
+const modeBtn = document.getElementById('mode-btn');
+
+const params = new URLSearchParams(location.search);
+const MODE = { glow: 'glow', flame: 'flame' };
+function initialMode() {
+  const v = (params.get('mode') || CONFIG.defaultMode).toLowerCase();
+  return v === 'flame' || v === 'fire' || v === '2' ? MODE.flame : MODE.glow;
+}
+let visualMode = initialMode();
 
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -182,6 +192,7 @@ function makeSlot(name, model) {
     retarget,
     latest: null,
     fire: fire.createHand(name),
+    glow: new GloveGlow(model),
   };
 }
 
@@ -197,10 +208,39 @@ for (const slot of slotList) {
   slot.flame = new FlameRig(slot.retarget.bones.Palm, scene);
 }
 
-const params = new URLSearchParams(location.search);
 const forceFire = params.has('fire');
 let synthetic = null;
 let mode = 'track';
+
+function applyMode(next, updateUrl = false) {
+  visualMode = next;
+  fire.glowOnly = next === MODE.glow;
+  modeBtn.textContent = next === MODE.glow ? '微光' : '火焰';
+  modeBtn.dataset.mode = next;
+  hintEl.textContent = next === MODE.glow
+    ? '握拳点亮 · 张手熄灭 · 支持双手'
+    : '握拳点火 · 张手熄灭 · 支持双手';
+
+  // Swap visuals immediately instead of waiting for either side to fade out.
+  for (const slot of slotList) {
+    if (next === MODE.glow && slot.flame) {
+      slot.flame.mesh.visible = false;
+      slot.flame.light.visible = false;
+    }
+    if (next === MODE.flame && slot.glow) slot.glow.reset();
+  }
+
+  if (updateUrl) {
+    const url = new URL(location.href);
+    url.searchParams.set('mode', next);
+    history.replaceState(null, '', url);
+  }
+}
+
+modeBtn.addEventListener('click', () => {
+  applyMode(visualMode === MODE.glow ? MODE.flame : MODE.glow, true);
+});
+applyMode(visualMode);
 
 if (params.has('raw')) {
   mode = 'raw';
@@ -216,7 +256,6 @@ if (params.has('raw')) {
   try {
     await startTracking({ video, onResults });
     setStatus('请把手放进画面');
-    hintEl.textContent = '握拳点火 · 张手熄灭 · 支持双手';
   } catch (err) {
     console.error(err);
     setStatus('摄像头/识别启动失败：' + err.message);
@@ -228,8 +267,9 @@ function updateStatus(now) {
   for (const slot of slotList) {
     if (!slot.latest || now - slot.latest.t >= CONFIG.handLostMs) continue;
     const side = slot === slots.left ? '左手' : '右手';
-    const burning = slot.fire.firing || slot.fire.intensity > 0.15;
-    parts.push(side + (burning ? ' · 燃烧' : ' · 已贴合'));
+    const active = slot.fire.firing || slot.fire.intensity > 0.15;
+    const label = visualMode === MODE.glow ? '微光' : '燃烧';
+    parts.push(side + (active ? ' · ' + label : ' · 已贴合'));
   }
   setStatus(parts.length ? parts.join('    ') : '请把手放进画面');
 }
@@ -271,6 +311,7 @@ function frame(now) {
 
   const dt = Math.min((now - lastFrame) / 1000, 0.05);
   lastFrame = now;
+  const t = now * 0.001;
   const view = computeView();
 
   if (mode !== 'raw') {
@@ -290,12 +331,14 @@ function frame(now) {
       }
       slot.retarget.setVisible(!!input);
       slot.fire.update(dt, view, input ? input.lms : null, forceFire);
-      if (slot.flame) slot.flame.update(now * 0.001, slot.fire.intensity, dt);
+      if (slot.flame) slot.flame.update(t, visualMode === MODE.flame ? slot.fire.intensity : 0, dt);
+      slot.glow.update(t, visualMode === MODE.glow ? slot.fire.intensity : 0, dt);
     }
   } else {
     for (const slot of slotList) {
       slot.fire.update(dt, view, null, false);
-      if (slot.flame) slot.flame.update(now * 0.001, 0, dt);
+      if (slot.flame) slot.flame.update(t, 0, dt);
+      slot.glow.update(t, 0, dt);
     }
   }
 
@@ -306,12 +349,16 @@ function frame(now) {
   renderer.clear();
   renderer.render(scene, camera);
 
-  camera.layers.set(FLAME_LAYER);
-  bloomComposer.render(dt);
-  camera.layers.enableAll();
-  glowQuad.material.uniforms.tGlow.value = bloomPass.renderTargetsHorizontal[0].texture;
-  renderer.setRenderTarget(null);
-  renderer.render(glowScene, glowCamera);
+  // Glow mode has no flame layer to bloom, and its glow must not spill onto
+  // the silver glove.
+  if (visualMode === MODE.flame) {
+    camera.layers.set(FLAME_LAYER);
+    bloomComposer.render(dt);
+    camera.layers.enableAll();
+    glowQuad.material.uniforms.tGlow.value = bloomPass.renderTargetsHorizontal[0].texture;
+    renderer.setRenderTarget(null);
+    renderer.render(glowScene, glowCamera);
+  }
 
   if (mode === 'track' && now - lastStatusAt > 200) {
     lastStatusAt = now;
@@ -320,4 +367,8 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-window.__GLOVE = { slots, slotList, fire, mode, scene, camera, renderer };
+window.__GLOVE = {
+  slots, slotList, fire, mode, scene, camera, renderer,
+  get visualMode() { return visualMode; },
+  setMode: (m) => applyMode(m),
+};

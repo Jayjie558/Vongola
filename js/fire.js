@@ -213,14 +213,16 @@ export class HandFire {
       this.intensity += (this.targetIntensity - this.intensity) * lerpF;
     }
 
-    if (this.points && this.intensity > 0.05) {
-      const eff = Math.min(1, this.intensity + this.speedBoost * 0.35);
-      this.system.spawnEmbers(this, eff, dt);
-      if (this.intensity > 0.25) this.system.spawnSparks(this, eff, dt);
-    }
-    if (this.points && this.burstEnergy > 0.3) {
-      this.system.spawnBurst(this, this.burstEnergy);
-      this.burstEnergy *= 0.5;
+    if (!this.system.glowOnly) {
+      if (this.points && this.intensity > 0.05) {
+        const eff = Math.min(1, this.intensity + this.speedBoost * 0.35);
+        this.system.spawnEmbers(this, eff, dt);
+        if (this.intensity > 0.25) this.system.spawnSparks(this, eff, dt);
+      }
+      if (this.points && this.burstEnergy > 0.3) {
+        this.system.spawnBurst(this, this.burstEnergy);
+        this.burstEnergy *= 0.5;
+      }
     }
   }
 
@@ -519,6 +521,7 @@ export class FireSystem {
     this.w = 0;
     this.h = 0;
     this.use3dBody = false;
+    this.glowOnly = false;
     this.resize();
   }
 
@@ -608,6 +611,9 @@ export class FireSystem {
     this.bursts = this.bursts.filter((b) => !b.dead);
 
     ctx.clearRect(0, 0, this.w, this.h);
+
+    // Glow mode owns the whole look; the 2D layer stays empty.
+    if (this.glowOnly) return;
 
     for (const hand of this.hands) {
       if (this.use3dBody) renderHandAura(ctx, hand, this.time);
