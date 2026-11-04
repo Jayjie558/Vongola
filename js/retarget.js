@@ -20,7 +20,7 @@ export function mirrorFromLabel(label) {
   return realRight;
 }
 
-function toWorld(lm, view) {
+export function toWorld(lm, view) {
   const px = (1 - lm.x) * view.rw + view.ox;
   const py = lm.y * view.rh + view.oy;
   return new THREE.Vector3(

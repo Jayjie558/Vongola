@@ -15,8 +15,12 @@
   </div>
 
   <div id="status">正在启动…</div>
+  <div id="gesture-debug" hidden></div>
   <div id="hint">握拳点亮 · 张手熄灭 · 支持双手</div>
-  <button id="mode-btn" title="切换特效模式：手套微光 / 球形火焰">微光</button>
+  <div id="mode-switch" role="group" aria-label="特效模式">
+    <button type="button" data-mode="glow">手套微光</button>
+    <button type="button" data-mode="flame">球形火焰</button>
+  </div>
   <button id="flip-btn" title="左右手镜像翻转">⇄</button>
 
   <script type="importmap">

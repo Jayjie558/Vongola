@@ -9,6 +9,10 @@ export function createSelftest(retarget, setStatus, view) {
   const mirrorPath = selftestParams.has('mirror');
   const twoHands = selftestParams.has('two');
   const fistPath = selftestParams.has('fist');
+  const sixPath = selftestParams.has('six');
+  const gunPath = selftestParams.has('gun');
+  const gunvPath = selftestParams.has('gunv');
+  const zeroPath = selftestParams.has('zero');
   const bones = retarget.bones;
   const head = (name) => bones[name].getWorldPosition(new THREE.Vector3());
   const ahead = (name) => {
@@ -57,22 +61,34 @@ export function createSelftest(retarget, setStatus, view) {
     const q = new THREE.Quaternion().setFromAxisAngle(sideW, angle);
     a.copy(pivot).add(d.applyQuaternion(q).multiplyScalar(radius));
   };
-  if (fistPath) {
-    // Fold every joint and all of its descendants so the fingertips actually
-    // travel back toward the palm.
-    const chains = [[5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20], [1, 2, 3, 4]];
-    for (const chain of chains) {
-      for (let k = 0; k < 3; k++) {
-        const pivot = world[chain[k]];
-        const q = new THREE.Quaternion().setFromAxisAngle(sideW, -1.05);
-        for (let j = k + 1; j < chain.length; j++) {
-          const p = world[chain[j]];
-          const d = p.clone().sub(pivot);
-          const radius = d.length();
-          p.copy(pivot).add(d.normalize().applyQuaternion(q).multiplyScalar(radius));
-        }
+  // Fold every joint and all of its descendants so the fingertip actually
+  // travels back toward the palm.
+  const fold = (chain) => {
+    for (let k = 0; k < 3; k++) {
+      const pivot = world[chain[k]];
+      const q = new THREE.Quaternion().setFromAxisAngle(sideW, -1.05);
+      for (let j = k + 1; j < chain.length; j++) {
+        const p = world[chain[j]];
+        const d = p.clone().sub(pivot);
+        const radius = d.length();
+        p.copy(pivot).add(d.normalize().applyQuaternion(q).multiplyScalar(radius));
       }
     }
+  };
+
+  if (fistPath) {
+    for (const chain of [[5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20], [1, 2, 3, 4]]) {
+      fold(chain);
+    }
+  } else if (sixPath) {
+    // thumb + pinky out, the three middle fingers folded
+    for (const chain of [[5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]) fold(chain);
+  } else if (gunPath) {
+    // thumb + index out, the three other fingers folded
+    for (const chain of [[9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]]) fold(chain);
+  } else if (gunvPath) {
+    // pistol with the middle finger added: thumb + index + middle out
+    for (const chain of [[13, 14, 15, 16], [17, 18, 19, 20]]) fold(chain);
   } else {
     for (const [i0, i1] of [[10, 11], [11, 12], [6, 7], [7, 8], [14, 15], [15, 16], [18, 19], [19, 20]]) {
       curl(world[i1], world[i0], i0 === 10 || i0 === 11 ? -0.62 : -0.34);
@@ -83,7 +99,7 @@ export function createSelftest(retarget, setStatus, view) {
   // plane), which is what the retarget must mirror the left-hand model onto.
   if (mirrorPath) for (const p of world) p.z = -p.z;
 
-  const lms = world.map((p) => {
+  const toLms = (p) => {
     const px = p.x * view.ch + view.cw / 2;
     const py = view.ch / 2 - p.y * view.ch;
     return {
@@ -91,7 +107,52 @@ export function createSelftest(retarget, setStatus, view) {
       y: (py - view.oy) / view.rh,
       z: -p.z * view.ch / (view.rw * CONFIG.zGain),
     };
-  });
+  };
+  const lms = world.map(toLms);
+
+  // ?zero=1: two hands whose corresponding fingertips meet on the window's
+  // vertical centerline, mirrored about it. Rotate the first hand so its
+  // thumb-index segment is vertical (both tips share an x), park that x on the
+  // centerline, then mirror the whole hand across it.
+  let zeroHands = null;
+  if (zeroPath) {
+    const screen = world.map((p) => ({
+      x: p.x * view.ch + view.cw / 2,
+      y: view.ch / 2 - p.y * view.ch,
+      z: p.z,
+    }));
+    const mid = {
+      x: 0.5 * (screen[4].x + screen[8].x),
+      y: 0.5 * (screen[4].y + screen[8].y),
+    };
+    const rotate = (ang) => screen.map((p) => {
+      const dx = p.x - mid.x;
+      const dy = p.y - mid.y;
+      const c = Math.cos(ang);
+      const s = Math.sin(ang);
+      return { x: mid.x + dx * c - dy * s, y: mid.y + dx * s + dy * c, z: p.z };
+    });
+    // rotate the thumb-index segment onto the vertical (+y) axis
+    const segAngle = Math.atan2(screen[8].y - screen[4].y, screen[8].x - screen[4].x);
+    const ang = Math.PI / 2 - segAngle;
+    let posed = rotate(ang);
+    // the palm body should sit on the left of the centerline
+    if (posed[9].x > mid.x) posed = rotate(ang + Math.PI);
+
+    const axis = view.cw / 2;
+    const shift = axis - mid.x;
+    const leftScreen = posed.map((p) => ({ x: p.x + shift, y: p.y, z: p.z }));
+    const rightScreen = leftScreen.map((p) => ({ x: 2 * axis - p.x, y: p.y, z: p.z }));
+    const toWorld = (p) => ({
+      x: (p.x - view.cw / 2) / view.ch,
+      y: (view.ch / 2 - p.y) / view.ch,
+      z: p.z,
+    });
+    zeroHands = [
+      { lms: leftScreen.map(toWorld).map(toLms), label: mirrorPath ? 'Left' : 'Right' },
+      { lms: rightScreen.map(toWorld).map(toLms), label: mirrorPath ? 'Right' : 'Left' },
+    ];
+  }
 
   let frames = 0;
   let done = false;
@@ -99,8 +160,10 @@ export function createSelftest(retarget, setStatus, view) {
   function report() {
     done = true;
     const err = retarget.lastError;
-    const q = retarget.bones.Middle_Distal.quaternion;
-    const rest = retarget.rest.Middle_Distal;
+    // the pistol variant keeps the middle finger straight, so check a folded one
+    const bendBone = gunvPath ? 'Ring_Distal' : 'Middle_Distal';
+    const q = retarget.bones[bendBone].quaternion;
+    const rest = retarget.rest[bendBone];
     const bend = 2 * Math.acos(Math.min(1, Math.abs(q.dot(rest))));
     const scaleOk = retarget.model.scale.x > 0.5 && retarget.model.scale.x < 15;
     const ok = Number.isFinite(err) && err < 0.02 && bend > 0.3 && scaleOk;
@@ -119,6 +182,7 @@ export function createSelftest(retarget, setStatus, view) {
       if (frames === 90 && !done) report();
       // raw-camera MediaPipe label: a real left hand reads as 'Right'
       const list = [{ lms, label: mirrorPath ? 'Left' : 'Right' }];
+      if (zeroHands) return zeroHands;
       if (twoHands) {
         // second synthetic hand sits to the side, opposite handedness
         list.push({

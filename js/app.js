@@ -6,11 +6,13 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { CONFIG } from './config.js';
-import { Retarget, mirrorFromLabel } from './retarget.js';
+import { Retarget, mirrorFromLabel, toWorld } from './retarget.js';
+import { ZeroBurst } from './zero-burst.js';
 import { startTracking } from './hand-tracker.js';
 import { FireSystem } from './fire.js';
 import { FlameRig } from './flame3d.js';
 import { GloveGlow } from './glove-glow.js';
+import { HandGesture, PairGesture, GESTURE_LABELS } from './gesture.js';
 
 const video = document.getElementById('webcam');
 const canvas = document.getElementById('gl-canvas');
@@ -18,7 +20,9 @@ const fireCanvas = document.getElementById('fire-canvas');
 const statusEl = document.getElementById('status');
 const hintEl = document.getElementById('hint');
 const flipBtn = document.getElementById('flip-btn');
-const modeBtn = document.getElementById('mode-btn');
+const modeSwitch = document.getElementById('mode-switch');
+const modeButtons = [...modeSwitch.querySelectorAll('button')];
+const gesturePanel = document.getElementById('gesture-debug');
 
 const params = new URLSearchParams(location.search);
 const MODE = { glow: 'glow', flame: 'flame' };
@@ -62,6 +66,7 @@ scene.add(rimLight);
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
 const fire = new FireSystem(fireCanvas);
+const zeroBurst = new ZeroBurst(scene);
 
 // Bloom only the flame: the glove is bright metal and would smear if the whole
 // frame were filtered, so the flame lives on its own layer and gets a second,
@@ -148,6 +153,7 @@ function resize() {
   camera.bottom = -0.5;
   camera.updateProjectionMatrix();
   fire.resize();
+  zeroBurst.setPixelRatio(dpr);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -191,8 +197,10 @@ function makeSlot(name, model) {
     model,
     retarget,
     latest: null,
+    lastLms: null,
     fire: fire.createHand(name),
     glow: new GloveGlow(model),
+    gesture: new HandGesture(name),
   };
 }
 
@@ -201,6 +209,7 @@ const slots = {
   right: makeSlot('right', modelRight),
 };
 const slotList = [slots.left, slots.right];
+const pairGesture = new PairGesture();
 
 // Procedural flame aura sphere around each fist.
 fire.use3dBody = true;
@@ -215,8 +224,11 @@ let mode = 'track';
 function applyMode(next, updateUrl = false) {
   visualMode = next;
   fire.glowOnly = next === MODE.glow;
-  modeBtn.textContent = next === MODE.glow ? '微光' : '火焰';
-  modeBtn.dataset.mode = next;
+  for (const btn of modeButtons) {
+    const active = btn.dataset.mode === next;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
   hintEl.textContent = next === MODE.glow
     ? '握拳点亮 · 张手熄灭 · 支持双手'
     : '握拳点火 · 张手熄灭 · 支持双手';
@@ -237,9 +249,9 @@ function applyMode(next, updateUrl = false) {
   }
 }
 
-modeBtn.addEventListener('click', () => {
-  applyMode(visualMode === MODE.glow ? MODE.flame : MODE.glow, true);
-});
+for (const btn of modeButtons) {
+  btn.addEventListener('click', () => applyMode(btn.dataset.mode, true));
+}
 applyMode(visualMode);
 
 if (params.has('raw')) {
@@ -269,9 +281,93 @@ function updateStatus(now) {
     const side = slot === slots.left ? '左手' : '右手';
     const active = slot.fire.firing || slot.fire.intensity > 0.15;
     const label = visualMode === MODE.glow ? '微光' : '燃烧';
-    parts.push(side + (active ? ' · ' + label : ' · 已贴合'));
+    const gesture = slot.gesture.label !== 'none'
+      ? ' · ' + GESTURE_LABELS[slot.gesture.label] : '';
+    parts.push(side + gesture + (active ? ' · ' + label : ' · 已贴合'));
   }
+  if (pairGesture.active) parts.push('零点突破');
   setStatus(parts.length ? parts.join('    ') : '请把手放进画面');
+}
+
+// ── Gesture debug panel (?gesture=1, or press G) ──
+const FINGER_CN = { thumb: '拇', index: '食', middle: '中', ring: '无', pinky: '小' };
+const FINGER_ORDER = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+let gesturePanelOn = params.has('gesture');
+if (gesturePanel) gesturePanel.hidden = !gesturePanelOn;
+
+function gestureSnapshot() {
+  const out = {};
+  for (const slot of slotList) {
+    const g = slot.gesture;
+    out[slot === slots.left ? 'left' : 'right'] = {
+      detected: g.detected,
+      label: g.label,
+      candidate: g.candidate,
+      curls: Object.fromEntries(
+        FINGER_ORDER.map((n) => [n, Number(g.curls[n].toFixed(3))]),
+      ),
+      extended: { ...g.extended },
+    };
+  }
+  out.pair = {
+    active: pairGesture.active,
+    metrics: pairGesture.metrics
+      ? Object.fromEntries(
+        Object.entries(pairGesture.metrics).map(([k, v]) => [k, Number(v.toFixed(3))]),
+      )
+      : null,
+  };
+  return out;
+}
+
+let copiedUntil = 0;
+
+window.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'g' || e.key === 'G') {
+    gesturePanelOn = !gesturePanelOn;
+    if (gesturePanel) gesturePanel.hidden = !gesturePanelOn;
+    return;
+  }
+  if (e.key === 'c' || e.key === 'C') {
+    // Tuning aid: pop the current numbers on the clipboard for a bug report.
+    const text = JSON.stringify(gestureSnapshot(), null, 2);
+    navigator.clipboard?.writeText(text)
+      .then(() => { copiedUntil = performance.now() + 1500; })
+      .catch(() => {});
+    console.log(text);
+  }
+});
+
+function updateGesturePanel() {
+  if (!gesturePanel || !gesturePanelOn) return;
+  const lines = [];
+  for (const slot of slotList) {
+    const g = slot.gesture;
+    const side = slot === slots.left ? '左手' : '右手';
+    if (!g.detected) {
+      lines.push(side + '  未检测到');
+      continue;
+    }
+    const label = GESTURE_LABELS[g.label] || g.label;
+    const candidate = g.candidate !== g.label
+      ? '  (候选 ' + (GESTURE_LABELS[g.candidate] || g.candidate) + ')'
+      : '';
+    const curls = FINGER_ORDER
+      .map((n) => FINGER_CN[n] + g.curls[n].toFixed(2))
+      .join(' ');
+    lines.push(side + '  ' + label + candidate);
+    lines.push('  ' + curls);
+  }
+  if (pairGesture.metrics) {
+    const m = pairGesture.metrics;
+    lines.push('双手  ' + (pairGesture.active ? '零点突破' : '—')
+      + '  拇' + m.dThumb.toFixed(2)
+      + ' 食' + m.dIndex.toFixed(2)
+      + ' 轴' + m.symmetry.toFixed(2));
+  }
+  lines.push(performance.now() < copiedUntil ? '已复制 ✓' : '按 C 复制数据');
+  gesturePanel.textContent = lines.join('\n');
 }
 
 function onResults(results) {
@@ -306,6 +402,24 @@ flipBtn.addEventListener('click', () => {
 let lastFrame = performance.now();
 let lastStatusAt = 0;
 
+// Where the two hands' thumb/index tips meet, in scene units, plus the hand's
+// wrist-to-knuckle length so the energy can scale with the hands.
+const zeroAnchor = { center: new THREE.Vector3(), size: 0 };
+function computeZeroAnchor(view) {
+  const a = slots.left.lastLms;
+  const b = slots.right.lastLms;
+  if (!a || !b) return null;
+  zeroAnchor.center.set(0, 0, 0);
+  for (const i of [4, 8]) {
+    zeroAnchor.center.add(toWorld(a[i], view)).add(toWorld(b[i], view));
+  }
+  zeroAnchor.center.multiplyScalar(0.25);
+  const sizeA = toWorld(a[0], view).distanceTo(toWorld(a[9], view));
+  const sizeB = toWorld(b[0], view).distanceTo(toWorld(b[9], view));
+  zeroAnchor.size = 0.5 * (sizeA + sizeB);
+  return zeroAnchor;
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
 
@@ -330,17 +444,28 @@ function frame(now) {
         slot.retarget.update(input.lms, view, input.label || null, mirrorOverride);
       }
       slot.retarget.setVisible(!!input);
+      slot.lastLms = input ? input.lms : null;
+      slot.gesture.update(dt, input ? input.lms : null, view);
       slot.fire.update(dt, view, input ? input.lms : null, forceFire);
       if (slot.flame) slot.flame.update(t, visualMode === MODE.flame ? slot.fire.intensity : 0, dt);
-      slot.glow.update(t, visualMode === MODE.glow ? slot.fire.intensity : 0, dt);
+      // pairGesture.active is one frame behind here; the 0.15s debounce hides it
+      slot.glow.update(t, visualMode === MODE.glow ? slot.fire.intensity : 0, dt,
+        pairGesture.active ? 1 : 0);
     }
   } else {
     for (const slot of slotList) {
+      slot.lastLms = null;
+      slot.gesture.update(dt, null, view);
       slot.fire.update(dt, view, null, false);
       if (slot.flame) slot.flame.update(t, 0, dt);
-      slot.glow.update(t, 0, dt);
+      slot.glow.update(t, 0, dt, 0);
     }
   }
+
+  pairGesture.update(dt, slots.left, slots.right, view);
+
+  const anchor = computeZeroAnchor(view);
+  zeroBurst.update(t, pairGesture.active, anchor ? anchor.center : null, anchor ? anchor.size : 0);
 
   fire.render(dt);
 
@@ -360,15 +485,16 @@ function frame(now) {
     renderer.render(glowScene, glowCamera);
   }
 
-  if (mode === 'track' && now - lastStatusAt > 200) {
+  if (now - lastStatusAt > 200) {
     lastStatusAt = now;
-    updateStatus(now);
+    if (mode === 'track') updateStatus(now);
+    updateGesturePanel();
   }
 }
 requestAnimationFrame(frame);
 
 window.__GLOVE = {
-  slots, slotList, fire, mode, scene, camera, renderer,
+  slots, slotList, fire, pair: pairGesture, zeroBurst, mode, scene, camera, renderer,
   get visualMode() { return visualMode; },
   setMode: (m) => applyMode(m),
 };

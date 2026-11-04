@@ -5,6 +5,10 @@ export const CONFIG = {
   gloveGlowStrength: 1.0,
   gloveGlowPower: 2.0,
   gloveGlowPulse: 0.12,
+  // 零点突破: a much stronger, broader glove glow flashing once per second.
+  gloveGlowZeroStrength: 3.6,
+  gloveGlowZeroBlinkHz: 1,
+  gloveGlowZeroPower: 1.25,
 
   targetFps: 30,
   maxHands: 2,
@@ -31,6 +35,25 @@ export const CONFIG = {
   fireOffOpenness: 0.55,
   gestureDebounce: 0.12,
   fireOpacity: 0.6,
+
+  // Gesture layer: per-finger curl (0 = straight, 1 = folded). A finger counts
+  // as curled above CURLED and extended again below EXTENDED; a gesture must
+  // hold for `gestureDebounce` seconds before it is reported.
+  gestureSmooth: 12,
+  gestureCurlCurled: 0.62,
+  gestureCurlExtended: 0.42,
+  gestureCurlFull: 4.2,
+  gestureDebounce: 0.15,
+  gestureThumbUpRatio: 0.35,
+
+  // 零点突破: the hands' corresponding fingertips meet (left thumb against
+  // right thumb, left index against right index) in a roughly mirrored shape.
+  // Distances are in hand-size units (wrist -> middle knuckle).
+  zeroContactOn: 0.4,
+  zeroContactOff: 0.6,
+  zeroSymmetry: 0.5,
+  zeroMinApart: 0.9,
+  zeroMaxHeightDiff: 0.8,
 
   exposure: 1.05,
 

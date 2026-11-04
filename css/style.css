@@ -51,6 +51,25 @@ body {
   white-space: nowrap;
 }
 
+#gesture-debug {
+  position: fixed;
+  top: 70px;
+  left: 18px;
+  z-index: 10;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: rgba(255, 255, 255, 0.82);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+  pointer-events: none;
+}
+
 #hint {
   position: fixed;
   bottom: 34px;
@@ -62,39 +81,44 @@ body {
   pointer-events: none;
 }
 
-#mode-btn {
+#mode-switch {
   position: fixed;
-  right: 18px;
-  bottom: 70px;
-  height: 42px;
-  padding: 0 18px;
-  border-radius: 21px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #ccc;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  cursor: pointer;
+  left: 18px;
+  bottom: 18px;
   z-index: 10;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 25px;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+#mode-switch button {
+  height: 34px;
+  padding: 0 15px;
+  border-radius: 17px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
   transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 
-#mode-btn[data-mode="glow"] {
-  color: #ffb45f;
-  border-color: rgba(255, 150, 60, 0.45);
-}
-
-#mode-btn[data-mode="flame"] {
-  color: #ffd98f;
-  border-color: rgba(255, 200, 90, 0.55);
-}
-
-#mode-btn:hover {
-  background: rgba(255, 255, 255, 0.16);
+#mode-switch button:hover {
   color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#mode-switch button.active {
+  color: #ffc078;
+  background: rgba(255, 150, 60, 0.18);
+  border-color: rgba(255, 150, 60, 0.5);
 }
 
 #flip-btn {
