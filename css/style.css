@@ -51,6 +51,26 @@ body {
   white-space: nowrap;
 }
 
+#rec-badge {
+  position: fixed;
+  top: 22px;
+  right: 18px;
+  z-index: 10;
+  padding: 7px 12px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 95, 85, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #ff6b5e;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 #gesture-debug {
   position: fixed;
   top: 70px;

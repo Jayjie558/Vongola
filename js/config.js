@@ -53,6 +53,11 @@ export const CONFIG = {
   zeroMinApart: 0.9,
   zeroMaxHeightDiff: 0.8,
 
+  // Raw recording (M key to start/stop): 30 Hz keeps a 5-minute session at 9k
+  // samples. Raise the rate if a later tremor analysis needs more detail.
+  measureHz: 30,
+  measureMaxSamples: 9000,
+
   exposure: 1.05,
 
   // Bloom reads the linear-HDR frame, so only the flame clears the threshold.

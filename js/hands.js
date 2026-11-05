@@ -85,7 +85,7 @@ export class HandRig {
       }
       if (!slot) continue;
       claimed.add(slot);
-      slot.latest = { lms: lmsList[i], label, t };
+      slot.latest = { lms: lmsList[i], label, t, score: handedness[i]?.score ?? null };
     }
   }
 
@@ -117,6 +117,7 @@ export class HandRig {
       }
 
       slot.lastLms = input ? input.lms : null;
+      slot.lastInput = input;
       slot.gesture.update(dt, input ? input.lms : null, view);
       slot.fire.update(dt, view, input ? input.lms : null, {
         ignited: enabled && slot.gesture.label === 'fist',

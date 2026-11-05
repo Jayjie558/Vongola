@@ -8,6 +8,7 @@ import { CONFIG } from './config.js';
 import { computeView } from './coords.js';
 import { HandRig } from './hands.js';
 import { createUI } from './ui.js';
+import { SessionRecorder, downloadSession } from './measure.js';
 import { ZeroBurst } from './zero-burst.js';
 import { startTracking } from './hand-tracker.js';
 import { FireSystem } from './fire.js';
@@ -16,6 +17,7 @@ const video = document.getElementById('webcam');
 const canvas = document.getElementById('gl-canvas');
 const fireCanvas = document.getElementById('fire-canvas');
 const statusEl = document.getElementById('status');
+const recBadge = document.getElementById('rec-badge');
 
 const params = new URLSearchParams(location.search);
 const MODE = { glow: 'glow', flame: 'flame' };
@@ -163,6 +165,7 @@ const hands = new HandRig({ gltf, scene, fire });
 const slots = hands.slots;
 const slotList = hands.slotList;
 const pairGesture = hands.pair;
+const recorder = new SessionRecorder({ video });
 
 // Procedural flame aura sphere around each fist.
 fire.use3dBody = true;
@@ -202,6 +205,13 @@ const ui = createUI({
   onFlip: () => hands.toggleMirror(),
 });
 applyMode(visualMode);
+
+window.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key !== 'm' && e.key !== 'M') return;
+  const data = recorder.toggle(mode === 'selftest' ? 'selftest' : 'free');
+  if (data) downloadSession(data);
+});
 
 function onResults(results) {
   hands.claim(results);
@@ -247,6 +257,8 @@ function frame(now) {
     channels,
   });
 
+  if (mode !== 'raw') recorder.record(now, view, slotList);
+
   const anchor = hands.getZeroAnchor(view);
   zeroBurst.update(t, hands.pair.active, anchor ? anchor.center : null, anchor ? anchor.size : 0);
 
@@ -272,12 +284,17 @@ function frame(now) {
     lastStatusAt = now;
     if (mode === 'track') ui.updateStatus(now);
     ui.updateGesturePanel();
+    recBadge.hidden = !recorder.active;
+    if (recorder.active) {
+      const full = recorder.samples.length >= recorder.maxSamples ? ' (full)' : '';
+      recBadge.textContent = '● REC ' + recorder.samples.length + full;
+    }
   }
 }
 requestAnimationFrame(frame);
 
 window.__GLOVE = {
-  slots, slotList, fire, pair: pairGesture, zeroBurst, mode, scene, camera, renderer,
+  slots, slotList, fire, pair: pairGesture, zeroBurst, mode, scene, camera, renderer, recorder,
   get visualMode() { return visualMode; },
   setMode: (m) => applyMode(m),
 };
