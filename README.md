@@ -19,7 +19,8 @@
   - 模式 1 · 手套微光（默认）：握拳只让手套边缘透出暖色光，不出现火球、光晕或粒子
   - 模式 2 · 球形火焰：握拳在拳头周围点燃程序化火焰球
   - 左下角「手套微光 / 球形火焰」切换按钮或 URL 参数切换
-- **握拳点火 / 张手熄灭**：带滞回阈值和防抖，避免临界手势来回闪烁
+- **手势驱动点火**：点亮 / 点燃由手势层的「握拳」判定驱动（逐指迟滞 + 0.15s 防抖）；
+  张开手掌或其他手势都会熄灭（放拳时火焰强弱仍随拳的松紧变化）
 - **程序化火焰球**（`js/flame3d.js`，模式 2）：
   - 橙色边缘 + 内部金→橙红渐变的半透明球体
   - 3D 噪声生成向上卷动的内部火舌
@@ -82,20 +83,21 @@ index.html          页面与 importmap
 server.js           极简静态服务器（仅监听 127.0.0.1）
 start.cmd           Windows 启动脚本
 js/
-  app.js            场景、渲染循环、bloom 合成
+  app.js            启动、渲染管线与帧循环编排
   config.js         可调参数（阈值、平滑、辉光强度等）
+  coords.js         关键点 -> 屏幕 / 世界坐标的唯一映射
+  hands.js          双手槽位、逐帧更新、零点突破锚点
+  ui.js             状态栏、模式按钮、镜像与手势调试面板
   hand-tracker.js   摄像头与 MediaPipe Hands
-  gesture.js        逐指弯曲度与手势分类
+  gesture.js        逐指弯曲度、手势分类与双手组合
   retarget.js       关键点 -> 手套骨骼重定向
   flame3d.js        程序化火焰球（着色器）
   zero-burst.js     零点突破的气团凝聚与爆开
   glove-glow.js     模式 1 的手套边缘暖光
-  fire.js           2D 光晕、余烬、火花与手势状态
+  fire.js           2D 光晕、余烬、火花与点火强度曲线
   selftest.js       合成手自检
 css/style.css       页面样式
 glove.glb           手套模型
-flame.glb           早期网格火焰实验，当前渲染不再使用
-tools/flame_build.py  生成 flame.glb 的 Blender 脚本
 vendor/             three.js 及其 addons（MIT）
 ```
 

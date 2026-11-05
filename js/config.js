@@ -29,11 +29,9 @@ export const CONFIG = {
   // swapped; flip them back. The on-screen button can override at runtime.
   swapHandedness: true,
 
-  // Fist ignition: ignite below ON openness, extinguish above OFF, and a
-  // gesture must hold for `gestureDebounce` seconds before it switches.
-  fireOnOpenness: 0.35,
+  // Ignition is the gesture layer's debounced `fist` label. Openness still
+  // scales the flame: at `fireOffOpenness` it reaches full size.
   fireOffOpenness: 0.55,
-  gestureDebounce: 0.12,
   fireOpacity: 0.6,
 
   // Gesture layer: per-finger curl (0 = straight, 1 = folded). A finger counts

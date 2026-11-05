@@ -2,6 +2,7 @@
 // classifier. MediaPipe already gives the landmarks; this module turns them
 // into finger states so the demo can react to more than just fist vs open.
 import { CONFIG } from './config.js';
+import { lmToAspect } from './coords.js';
 
 const FINGERS = [
   { name: 'thumb', joints: [1, 2, 3, 4] },
@@ -41,11 +42,8 @@ function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
 
-// Undistorted 2D points: the video is stretched to cover the window, so x and
-// y need the same scale before angles and distances mean anything.
 function toPoints(lms, view) {
-  const aspect = view && view.rh ? view.rw / view.rh : 1;
-  return lms.map((lm) => ({ x: (1 - lm.x) * aspect, y: lm.y }));
+  return lms.map((lm) => lmToAspect(lm, view));
 }
 
 function dist2(a, b) {

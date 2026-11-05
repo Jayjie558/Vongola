@@ -1,6 +1,7 @@
 // Vongola sky flame: fist ignites, open palm extinguishes. Rendered on a 2D
 // canvas above the WebGL glove, anchored to the tracked hand landmarks.
 import { CONFIG } from './config.js';
+import { lmToPixel } from './coords.js';
 
 const BONES = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -110,18 +111,18 @@ export class HandFire {
     this.targetIntensity = 0;
     this.burstEnergy = 0;
     this.firing = false;
-    this.igniteHold = 0;
-    this.extinguishHold = 0;
   }
 
-  update(dt, view, lms, force = false) {
+  /**
+   * @param {object} opts
+   *   ignited  the gesture layer reports a fist; its debounce is the hysteresis
+   *   force    debug override (?fire=1)
+   */
+  update(dt, view, lms, { ignited = false, force = false } = {}) {
     const lerpF = 1 - Math.exp(-12 * dt);
 
     if (lms && view) {
-      this.points = lms.map((lm) => ({
-        x: (1 - lm.x) * view.rw + view.ox,
-        y: lm.y * view.rh + view.oy,
-      }));
+      this.points = lms.map((lm) => lmToPixel(lm, view));
       this.detected = true;
 
       const pts = this.points;
@@ -165,28 +166,9 @@ export class HandFire {
       if (this.detected) {
         this.openness += (this.targetOpenness - this.openness) * lerpF;
 
-        // Hysteresis + debounce, so the fire does not flicker around the cutoff.
-        if (!this.firing) {
-          if (this.openness < CONFIG.fireOnOpenness) {
-            this.igniteHold += dt;
-            if (this.igniteHold >= CONFIG.gestureDebounce) {
-              this.firing = true;
-              this.igniteHold = 0;
-              this.extinguishHold = 0;
-            }
-          } else {
-            this.igniteHold = 0;
-          }
-        } else if (this.openness > CONFIG.fireOffOpenness) {
-          this.extinguishHold += dt;
-          if (this.extinguishHold >= CONFIG.gestureDebounce) {
-            this.firing = false;
-            this.extinguishHold = 0;
-            this.igniteHold = 0;
-          }
-        } else {
-          this.extinguishHold = 0;
-        }
+        // Ignition is the gesture classifier's debounced fist label. Openness
+        // only scales the flame: a loose fist burns weaker than a tight one.
+        this.firing = ignited;
 
         // A fast closing fist is the ignition punch.
         const delta = this.openness - this.prevOpenness;
@@ -205,8 +187,6 @@ export class HandFire {
         }
       } else {
         this.firing = false;
-        this.igniteHold = 0;
-        this.extinguishHold = 0;
         this.targetIntensity = 0;
       }
       this.burstEnergy += (0 - this.burstEnergy) * (1 - Math.exp(-3 * dt));

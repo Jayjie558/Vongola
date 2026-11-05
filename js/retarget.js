@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { lmToWorld } from './coords.js';
 
 // MediaPipe landmark chain -> glove bones.
 const CHAINS = [
@@ -18,16 +19,6 @@ export function mirrorFromLabel(label) {
   if (!label) return null;
   const realRight = CONFIG.swapHandedness ? label === 'Left' : label === 'Right';
   return realRight;
-}
-
-export function toWorld(lm, view) {
-  const px = (1 - lm.x) * view.rw + view.ox;
-  const py = lm.y * view.rh + view.oy;
-  return new THREE.Vector3(
-    (px - view.cw * 0.5) / view.ch,
-    (view.ch * 0.5 - py) / view.ch,
-    -lm.z * (view.rw / view.ch) * CONFIG.zGain,
-  );
 }
 
 export class Retarget {
@@ -75,7 +66,7 @@ export class Retarget {
    * @param {boolean|null} mirrorOverride force mirror on/off, null = auto
    */
   update(lms, view, label, mirrorOverride = null) {
-    const W = lms.map((lm) => toWorld(lm, view));
+    const W = lms.map((lm) => lmToWorld(lm, view));
     const wrist = W[0].clone();
 
     // palm frame: up = along the fingers, side = towards the pinky

@@ -2,7 +2,7 @@
 // own rest joints (rotated, scaled, plus a finger curl) and verify the fitted
 // model lands where the landmarks say it should.
 import * as THREE from 'three';
-import { CONFIG } from './config.js';
+import { worldToLm, worldToPixel, pixelToWorld } from './coords.js';
 
 export function createSelftest(retarget, setStatus, view) {
   const selftestParams = new URLSearchParams(location.search);
@@ -99,16 +99,7 @@ export function createSelftest(retarget, setStatus, view) {
   // plane), which is what the retarget must mirror the left-hand model onto.
   if (mirrorPath) for (const p of world) p.z = -p.z;
 
-  const toLms = (p) => {
-    const px = p.x * view.ch + view.cw / 2;
-    const py = view.ch / 2 - p.y * view.ch;
-    return {
-      x: 1 - (px - view.ox) / view.rw,
-      y: (py - view.oy) / view.rh,
-      z: -p.z * view.ch / (view.rw * CONFIG.zGain),
-    };
-  };
-  const lms = world.map(toLms);
+  const lms = world.map((p) => worldToLm(p, view));
 
   // ?zero=1: two hands whose corresponding fingertips meet on the window's
   // vertical centerline, mirrored about it. Rotate the first hand so its
@@ -116,11 +107,7 @@ export function createSelftest(retarget, setStatus, view) {
   // centerline, then mirror the whole hand across it.
   let zeroHands = null;
   if (zeroPath) {
-    const screen = world.map((p) => ({
-      x: p.x * view.ch + view.cw / 2,
-      y: view.ch / 2 - p.y * view.ch,
-      z: p.z,
-    }));
+    const screen = world.map((p) => worldToPixel(p, view));
     const mid = {
       x: 0.5 * (screen[4].x + screen[8].x),
       y: 0.5 * (screen[4].y + screen[8].y),
@@ -143,14 +130,10 @@ export function createSelftest(retarget, setStatus, view) {
     const shift = axis - mid.x;
     const leftScreen = posed.map((p) => ({ x: p.x + shift, y: p.y, z: p.z }));
     const rightScreen = leftScreen.map((p) => ({ x: 2 * axis - p.x, y: p.y, z: p.z }));
-    const toWorld = (p) => ({
-      x: (p.x - view.cw / 2) / view.ch,
-      y: (view.ch / 2 - p.y) / view.ch,
-      z: p.z,
-    });
+    const toLms = (p) => worldToLm(pixelToWorld(p, view), view);
     zeroHands = [
-      { lms: leftScreen.map(toWorld).map(toLms), label: mirrorPath ? 'Left' : 'Right' },
-      { lms: rightScreen.map(toWorld).map(toLms), label: mirrorPath ? 'Right' : 'Left' },
+      { lms: leftScreen.map(toLms), label: mirrorPath ? 'Left' : 'Right' },
+      { lms: rightScreen.map(toLms), label: mirrorPath ? 'Right' : 'Left' },
     ];
   }
 
