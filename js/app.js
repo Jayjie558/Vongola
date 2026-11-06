@@ -8,8 +8,11 @@ import { CONFIG } from './config.js';
 import { computeView } from './coords.js';
 import { HandRig } from './hands.js';
 import { createUI } from './ui.js';
-import { SessionRecorder, downloadSession } from './measure.js';
-import { PROTOCOLS, analyzeSession } from './protocols.js';
+import { SessionRecorder } from './measure.js';
+import { ProtocolJob } from './protocol-job.js';
+import { SignalMonitor } from './signal.js';
+import { TremorMonitor } from './tremor.js';
+import { createTremorPanel } from './tremor-panel.js';
 import { ZeroBurst } from './zero-burst.js';
 import { startTracking } from './hand-tracker.js';
 import { FireSystem } from './fire.js';
@@ -168,10 +171,14 @@ const slotList = hands.slotList;
 const pairGesture = hands.pair;
 const recorder = new SessionRecorder({ video });
 
-// Selected protocol and the running guided task (lead-in -> timed recording).
-const requestedProtocol = (params.get('protocol') || 'free').toLowerCase();
-let selectedProtocol = PROTOCOLS[requestedProtocol] ? requestedProtocol : 'free';
-let job = null;
+// Live signal view for threshold calibration; sampling runs even when no
+// recording is active, so the user can check the signal before pressing start.
+const signalMonitor = new SignalMonitor();
+signalMonitor.setEnabled(params.has('signal'));
+
+// Always-on tremor waveform (palm micro-motion), independent of protocols.
+const tremorMonitor = new TremorMonitor();
+const tremorPanel = createTremorPanel({ params });
 
 // Procedural flame aura sphere around each fist.
 fire.use3dBody = true;
@@ -201,94 +208,34 @@ function applyMode(next, updateUrl = false) {
   }
 }
 
+let protocolJob = null;
 const ui = createUI({
-  slots,
   slotList,
   pairGesture,
   params,
   getMode: () => visualMode,
   onModeChange: (next) => applyMode(next, true),
   onFlip: () => hands.toggleMirror(),
-  onSelectProtocol: (id) => selectProtocol(id),
-  onStartProtocol: () => startProtocol(),
+  onSelectProtocol: (id) => protocolJob?.select(id),
+  onStartProtocol: () => protocolJob?.start(),
+  onToggleSignal: (on) => signalMonitor.setEnabled(on),
+});
+
+protocolJob = new ProtocolJob({
+  recorder,
+  ui,
+  signalMonitor,
+  setStatus,
+  getSource: () => (mode === 'selftest' ? 'selftest' : 'free'),
+  onSaved: (data) => { window.__LAST_SESSION = data; },
 });
 applyMode(visualMode);
-ui.syncProtocol(PROTOCOLS[selectedProtocol]);
-
-function selectProtocol(id) {
-  // A free recording already carries its protocol id; switching now would
-  // label the running session with the wrong task.
-  if (job || recorder.active || !PROTOCOLS[id]) return;
-  selectedProtocol = id;
-  ui.syncProtocol(PROTOCOLS[id]);
-}
-
-function startProtocol() {
-  if (job) {
-    cancelJob('已取消');
-    return;
-  }
-  const def = PROTOCOLS[selectedProtocol];
-  if (def.id === 'free') {
-    saveSession(recorder.toggle(mode === 'selftest' ? 'selftest' : 'free'));
-    return;
-  }
-  if (recorder.active) return; // still recording a free session
-  job = { def, phase: 'leadIn', t0: performance.now() };
-  ui.setProtocolBusy(true);
-  ui.setProtocolPhase('leadIn', def, def.leadIn);
-}
-
-function cancelJob(message) {
-  if (!job) return;
-  if (job.phase === 'recording') recorder.stop();
-  job = null;
-  ui.setProtocolBusy(false);
-  ui.setProtocolPhase('idle');
-  setStatus(message);
-}
-
-function finishJob() {
-  const def = job.def;
-  const data = recorder.stop();
-  job = null;
-  ui.setProtocolBusy(false);
-  ui.setProtocolPhase('idle');
-  saveSession(data);
-}
-
-function saveSession(data) {
-  if (!data) return;
-  data.metrics = analyzeSession(data);
-  window.__LAST_SESSION = data;
-  downloadSession(data);
-  ui.showResult(data.metrics, PROTOCOLS[data.protocol] || PROTOCOLS.free);
-}
-
-function updateJob(now) {
-  if (job.phase === 'leadIn') {
-    const remain = job.def.leadIn - (now - job.t0) / 1000;
-    if (remain <= 0) {
-      job.phase = 'recording';
-      job.t0 = now;
-      recorder.start(job.def.id);
-      ui.setProtocolPhase('recording');
-    } else {
-      ui.setProtocolPhase('leadIn', job.def, remain);
-    }
-  } else if ((now - job.t0) / 1000 >= job.def.seconds) {
-    finishJob();
-  }
-}
+protocolJob.init((params.get('protocol') || 'free').toLowerCase());
 
 window.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === 'Escape') {
-    if (job) cancelJob('已取消');
-    return;
-  }
-  if (e.key !== 'm' && e.key !== 'M') return;
-  startProtocol();
+  if (e.key === 'Escape') protocolJob.cancel('已取消');
+  if (e.key === 'm' || e.key === 'M') protocolJob.start();
 });
 
 function onResults(results) {
@@ -318,6 +265,28 @@ if (params.has('raw')) {
 let lastFrame = performance.now();
 let lastStatusAt = 0;
 
+// Badge text and the slower DOM readouts (5 Hz is plenty for status text).
+function updateHud(now) {
+  if (now - lastStatusAt <= 200) return;
+  lastStatusAt = now;
+
+  const progress = protocolJob.progress(now);
+  if (progress) {
+    recBadge.hidden = false;
+    recBadge.textContent = progress.phase === 'recording'
+      ? '● REC ' + progress.elapsed.toFixed(1) + ' / ' + progress.seconds + 's'
+      : '准备 ' + Math.max(1, Math.ceil(progress.remain));
+  } else {
+    recBadge.hidden = !recorder.active;
+    if (recorder.active) {
+      const full = recorder.samples.length >= recorder.maxSamples ? ' (full)' : '';
+      recBadge.textContent = '● REC ' + recorder.samples.length + full;
+    }
+  }
+  if (mode === 'track') ui.updateStatus(now);
+  ui.updateGesturePanel();
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
 
@@ -335,8 +304,14 @@ function frame(now) {
     channels,
   });
 
-  if (job) updateJob(now);
-  if (mode !== 'raw') recorder.record(now, view, slotList);
+  protocolJob.update(now);
+  if (mode !== 'raw') {
+    recorder.record(now, view, slotList);
+    signalMonitor.sample(now, view, slotList);
+    tremorMonitor.sample(now, view, slotList);
+  }
+  ui.updateSignalPanel(signalMonitor, protocolJob.def, now);
+  tremorPanel.update(tremorMonitor, now);
 
   const anchor = hands.getZeroAnchor(view);
   zeroBurst.update(t, hands.pair.active, anchor ? anchor.center : null, anchor ? anchor.size : 0);
@@ -359,33 +334,13 @@ function frame(now) {
     renderer.render(glowScene, glowCamera);
   }
 
-  if (now - lastStatusAt > 200) {
-    lastStatusAt = now;
-    if (job) {
-      recBadge.hidden = false;
-      if (job.phase === 'recording') {
-        const elapsed = (now - job.t0) / 1000;
-        recBadge.textContent = '● REC ' + elapsed.toFixed(1) + ' / ' + job.def.seconds + 's';
-      } else {
-        const remain = job.def.leadIn - (now - job.t0) / 1000;
-        recBadge.textContent = '准备 ' + Math.max(1, Math.ceil(remain));
-      }
-      if (mode === 'track') ui.updateStatus(now);
-    } else {
-      recBadge.hidden = !recorder.active;
-      if (recorder.active) {
-        const full = recorder.samples.length >= recorder.maxSamples ? ' (full)' : '';
-        recBadge.textContent = '● REC ' + recorder.samples.length + full;
-      }
-      if (mode === 'track') ui.updateStatus(now);
-    }
-    ui.updateGesturePanel();
-  }
+  updateHud(now);
 }
 requestAnimationFrame(frame);
 
 window.__GLOVE = {
   slots, slotList, fire, pair: pairGesture, zeroBurst, mode, scene, camera, renderer, recorder,
+  signalMonitor, protocolJob, tremorMonitor, tremorPanel,
   get visualMode() { return visualMode; },
   setMode: (m) => applyMode(m),
 };

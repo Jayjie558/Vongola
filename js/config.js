@@ -64,17 +64,27 @@ export const CONFIG = {
   protocolLeadIn: 3,
   protocolSeconds: 10,
   metricCoverageMin: 0.35,
-  metricTapSmoothMs: 45,
   metricCycleSmoothMs: 80,
   metricRotationSmoothMs: 120,
-  // Signal amplitudes are in hand-size units (wrist -> middle knuckle).
-  metricTapMinAmplitude: 0.08,
+  // Signal amplitude is in hand-size units (wrist -> middle knuckle).
   metricCycleMinAmplitude: 0.12,
   // Rotation must swing at least this far before it counts as a turn.
   metricRotationMinSwing: 0.26, // ~15 degrees, radians
   metricRefractoryMs: 100,
   // Intervals longer than this are tracking dropouts, not rhythm information.
   metricMaxIntervalMs: 2000,
+
+  // Always-on tremor view: palm-center motion high-passed to remove voluntary
+  // drift. Amplitude is normalized by hand size (wrist -> middle knuckle), so
+  // it does not depend on camera distance. 30 Hz sampling resolves ~2-12 Hz.
+  tremorWindowMs: 5000,
+  tremorCutoffHz: 2,
+  tremorFreqMin: 2,
+  tremorFreqMax: 12,
+  // Below this filtered RMS (hand units), do not report a frequency: it is
+  // sensor noise rather than a tremor.
+  tremorFreqMinAmplitude: 0.0015,
+  tremorScaleFloor: 0.004,
 
   exposure: 1.05,
 

@@ -7,6 +7,7 @@
 //
 // Pure JS (no DOM, no THREE) so analyzers can be exercised directly in tests.
 import { CONFIG } from './config.js';
+import { coverRect, lmToAspectUnits } from './view.js';
 
 export const PROTOCOLS = {
   free: {
@@ -16,14 +17,6 @@ export const PROTOCOLS = {
     leadIn: 0,
     seconds: 0,
     hint: '按 M 开始 / 结束',
-  },
-  finger_tap: {
-    id: 'finger_tap',
-    name: '手指敲击',
-    metric: 'tap',
-    leadIn: CONFIG.protocolLeadIn,
-    seconds: CONFIG.protocolSeconds,
-    hint: '拇指与食指快速对捏，尽量快而均匀',
   },
   open_close: {
     id: 'open_close',
@@ -84,22 +77,7 @@ function analyzeHand(samples, side, metric, video) {
     labels.set(label, (labels.get(label) || 0) + 1);
 
     const view = makeView(sample, video);
-    // Recorder output is [x, y, z]; accept objects too so tests can hand-build
-    // landmarks.
-    const lms = hand.landmarks.map(toLandmark);
-    const p2 = lms.map((lm) => point2(lm, view));
-    const handSize = dist2(p2[0], p2[9]);
-    if (!(handSize > 1e-5)) continue;
-
-    let value;
-    if (metric === 'tap') {
-      value = dist2(p2[4], p2[8]) / handSize;
-    } else if (metric === 'cycle') {
-      value = FINGERTIPS.reduce((sum, i) => sum + dist2(p2[i], p2[0]) / handSize, 0)
-        / FINGERTIPS.length;
-    } else {
-      value = palmAngle(lms.map((lm) => point3(lm, view)));
-    }
+    const value = measureValue(hand.landmarks, metric, view);
     if (!Number.isFinite(value)) continue;
 
     if (lastT !== null) maxGapMs = Math.max(maxGapMs, sample.t - lastT);
@@ -121,12 +99,62 @@ function analyzeHand(samples, side, metric, video) {
     return { ...quality, count: 0, freqHz: 0 };
   }
 
-  if (metric === 'rotation') return { ...quality, ...rotationMetrics(points) };
-  return { ...quality, ...oscillationMetrics(points, metric) };
+  // Keep the exported JSON surface explicit; the analyzers also return drawing
+  // metadata (levels, smoothed series) for the live signal panel.
+  if (metric === 'rotation') {
+    const m = rotationMetrics(points);
+    return {
+      ...quality,
+      count: m.count,
+      freqHz: m.freqHz,
+      rangeDeg: m.rangeDeg,
+      rhythmCv: m.rhythmCv,
+    };
+  }
+  const m = oscillationMetrics(points);
+  return {
+    ...quality,
+    count: m.count,
+    freqHz: m.freqHz,
+    amplitude: m.amplitude,
+    intervalCv: m.intervalCv,
+  };
+}
+
+// Rolling-window summary for the live signal panel. Uses the same detectors as
+// the offline analyzer, so the panel reports what the export will report.
+export function summarizeSeries(points, metric) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+  if (metric === 'rotation') return rotationMetrics(points);
+  if (metric === 'cycle') return oscillationMetrics(points);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
 // Signal extraction
+
+// One sample of the task signal. The offline analyzer and the live signal
+// panel both call this, so what the panel shows is exactly what gets analyzed.
+export function measureValue(rawLandmarks, metric, view) {
+  if (!Array.isArray(rawLandmarks) || rawLandmarks.length < 21) return NaN;
+  // Recorder output is [x, y, z]; accept objects too so tests can hand-build
+  // landmarks.
+  const lms = rawLandmarks.map(toLandmark);
+  const p2 = lms.map((lm) => point2(lm, view));
+  const handSize = dist2(p2[0], p2[9]);
+  if (!(handSize > 1e-5)) return NaN;
+
+  let value;
+  if (metric === 'cycle') {
+    value = FINGERTIPS.reduce((sum, i) => sum + dist2(p2[i], p2[0]) / handSize, 0)
+      / FINGERTIPS.length;
+  } else if (metric === 'rotation') {
+    value = palmAngle(lms.map((lm) => point3(lm, view)));
+  } else {
+    return NaN;
+  }
+  return Number.isFinite(value) ? value : NaN;
+}
 
 function toLandmark(raw) {
   if (Array.isArray(raw)) return { x: raw[0], y: raw[1], z: raw[2] || 0 };
@@ -135,21 +163,13 @@ function toLandmark(raw) {
 
 function makeView(sample, video) {
   const [vw, vh] = video;
-  if (!(vw > 0 && vh > 0 && sample.cw > 0 && sample.ch > 0)) {
-    return { rw: 0, rh: 0, ox: 0, oy: 0 };
-  }
-  const scale = Math.max(sample.cw / vw, sample.ch / vh);
-  const rw = vw * scale;
-  const rh = vh * scale;
-  return { rw, rh, ox: (sample.cw - rw) / 2, oy: (sample.ch - rh) / 2 };
+  return coverRect(sample.cw, sample.ch, vw, vh) || { rw: 0, rh: 0, ox: 0, oy: 0 };
 }
 
 // Equal-scale units: same cover-fit mapping as coords.lmToAspect, but without
 // its THREE dependency so this module stays standalone.
 function point2(lm, view) {
-  const px = (1 - lm.x) * view.rw + view.ox;
-  const py = lm.y * view.rh + view.oy;
-  return { x: px / view.rh, y: py / view.rh };
+  return lmToAspectUnits(lm, view);
 }
 
 function point3(lm, view) {
@@ -185,50 +205,47 @@ function palmAngle(p3) {
 // units, so a square hand does not read as tall.
 
 // ---------------------------------------------------------------------------
-// Tap / open-close: threshold crossings with hysteresis.
+// Open-close: threshold crossings with hysteresis.
 
-function oscillationMetrics(points, metric) {
-  const tau = metric === 'tap' ? CONFIG.metricTapSmoothMs : CONFIG.metricCycleSmoothMs;
-  const minAmplitude = metric === 'tap'
-    ? CONFIG.metricTapMinAmplitude
-    : CONFIG.metricCycleMinAmplitude;
-  // A tap is a contact (closing edge); an open-close cycle is an opening edge.
-  const countDirection = metric === 'tap' ? -1 : 1;
-
-  const smoothed = emaSmooth(points, tau);
+function oscillationMetrics(points) {
+  const smoothed = emaSmooth(points, CONFIG.metricCycleSmoothMs);
+  const minAmplitude = CONFIG.metricCycleMinAmplitude;
   const values = smoothed.map((p) => p.v);
   const low = percentile(values, 0.05);
   const high = percentile(values, 0.95);
   const amplitude = high - low;
   const spanS = (points[points.length - 1].t - points[0].t) / 1000;
 
+  const on = low + amplitude * 0.65;
+  const off = low + amplitude * 0.35;
   const out = {
     count: 0,
     freqHz: 0,
     amplitude: round(amplitude, 3),
     intervalCv: 0,
+    // Drawing metadata for the signal panel; stripped from the exported JSON.
+    low,
+    high,
+    on,
+    off,
+    minAmplitude,
+    smoothed,
   };
   if (!(amplitude >= minAmplitude) || spanS <= 0) return out;
-
-  const on = low + amplitude * 0.65;
-  const off = low + amplitude * 0.35;
   let state = values[0] >= (on + off) * 0.5 ? 'high' : 'low';
   let lastEdgeT = -Infinity;
   const edges = [];
 
+  // One cycle is counted on the opening edge.
   for (const p of smoothed) {
     if (state === 'low' && p.v >= on) {
       state = 'high';
-      if (countDirection > 0 && p.t - lastEdgeT >= CONFIG.metricRefractoryMs) {
+      if (p.t - lastEdgeT >= CONFIG.metricRefractoryMs) {
         edges.push(p.t);
         lastEdgeT = p.t;
       }
     } else if (state === 'high' && p.v <= off) {
       state = 'low';
-      if (countDirection < 0 && p.t - lastEdgeT >= CONFIG.metricRefractoryMs) {
-        edges.push(p.t);
-        lastEdgeT = p.t;
-      }
     }
   }
 
@@ -253,6 +270,9 @@ function rotationMetrics(points) {
     freqHz: 0,
     rangeDeg: 0,
     rhythmCv: 0,
+    // Drawing metadata for the signal panel; stripped from the exported JSON.
+    smoothed,
+    minSwing: CONFIG.metricRotationMinSwing,
   };
   if (pivots.length < 2) return out;
 

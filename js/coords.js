@@ -6,16 +6,15 @@
 // they drift apart the flame separates from the hand. Keep the formula here.
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
+import { coverRect } from './view.js';
 
 export function computeView(video) {
-  const cw = window.innerWidth;
-  const ch = window.innerHeight;
-  const vw = video?.videoWidth || 640;
-  const vh = video?.videoHeight || 480;
-  const scale = Math.max(cw / vw, ch / vh);
-  const rw = vw * scale;
-  const rh = vh * scale;
-  return { cw, ch, rw, rh, ox: (cw - rw) / 2, oy: (ch - rh) / 2 };
+  return coverRect(
+    window.innerWidth,
+    window.innerHeight,
+    video?.videoWidth || 640,
+    video?.videoHeight || 480,
+  );
 }
 
 // Normalized landmark -> CSS pixel on the mirrored, cover-fitted frame.

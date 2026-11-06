@@ -23,6 +23,44 @@
     <div id="protocol-hint"></div>
   </div>
   <div id="result-panel" hidden></div>
+  <div id="left-stack">
+    <div id="tremor-panel">
+      <div id="tremor-head">手部颤抖 · 掌心平移</div>
+      <div class="signal-row">
+        <div class="signal-row-head">
+          <span class="signal-side">左手</span>
+          <span class="signal-stats" id="tremor-left-stats">—</span>
+        </div>
+        <canvas id="tremor-left" width="560" height="104"></canvas>
+      </div>
+      <div class="signal-row">
+        <div class="signal-row-head">
+          <span class="signal-side">右手</span>
+          <span class="signal-stats" id="tremor-right-stats">—</span>
+        </div>
+        <canvas id="tremor-right" width="560" height="104"></canvas>
+      </div>
+      <div id="tremor-foot">纵轴自动 · 横实 / 纵淡 · RMS（手长）</div>
+    </div>
+    <div id="signal-panel" hidden>
+      <div id="signal-head">信号检视 · <span id="signal-task">—</span></div>
+      <div class="signal-row">
+        <div class="signal-row-head">
+          <span class="signal-side">左手</span>
+          <span class="signal-stats" id="signal-left-stats">—</span>
+        </div>
+        <canvas id="signal-left" width="560" height="112"></canvas>
+      </div>
+      <div class="signal-row">
+        <div class="signal-row-head">
+          <span class="signal-side">右手</span>
+          <span class="signal-stats" id="signal-right-stats">—</span>
+        </div>
+        <canvas id="signal-right" width="560" height="112"></canvas>
+      </div>
+      <div id="signal-foot">虚线 p5 / p95 · 橙带 = 幅度下限 · S 关闭</div>
+    </div>
+  </div>
   <div id="hint">握拳点亮 · 张手熄灭 · 支持双手</div>
   <div id="mode-switch" role="group" aria-label="特效模式">
     <button type="button" data-mode="glow">手套微光</button>
@@ -30,7 +68,6 @@
   </div>
   <div id="protocol-bar" role="group" aria-label="测量协议">
     <button type="button" data-protocol="free">自由</button>
-    <button type="button" data-protocol="finger_tap">手指敲击</button>
     <button type="button" data-protocol="open_close">握拳张开</button>
     <button type="button" data-protocol="pronation_supination">旋前旋后</button>
     <button type="button" id="protocol-start" hidden>开始</button>

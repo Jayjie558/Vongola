@@ -1,13 +1,17 @@
-// DOM readouts and controls: status bar, mode buttons, mirror flip, and the
-// gesture debug panel (?gesture=1 / G, C to copy a snapshot).
+// DOM readouts and controls: status bar, mode buttons, mirror flip, the
+// gesture debug panel (?gesture=1 / G, C to copy a snapshot), and the protocol
+// overlay/result. The live signal panel lives in signal-panel.js.
 import { CONFIG } from './config.js';
 import { GESTURE_LABELS } from './gesture.js';
+import { createSignalPanel } from './signal-panel.js';
 
 const FINGER_CN = { thumb: '拇', index: '食', middle: '中', ring: '无', pinky: '小' };
 const FINGER_ORDER = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+const RESULT_VISIBLE_MS = 15000;
+const COPIED_MS = 1500;
+const COVERAGE_WARN = 0.9;
 
 export function createUI({
-  slots,
   slotList,
   pairGesture,
   params,
@@ -16,6 +20,7 @@ export function createUI({
   onFlip,
   onSelectProtocol,
   onStartProtocol,
+  onToggleSignal,
 }) {
   const statusEl = document.getElementById('status');
   const hintEl = document.getElementById('hint');
@@ -29,6 +34,7 @@ export function createUI({
   const protocolTask = document.getElementById('protocol-task');
   const protocolHint = document.getElementById('protocol-hint');
   const resultPanel = document.getElementById('result-panel');
+  const signalPanel = createSignalPanel({ params });
 
   let resultTimer = 0;
 
@@ -61,7 +67,7 @@ export function createUI({
     const parts = [];
     for (const slot of slotList) {
       if (!slot.latest || now - slot.latest.t >= CONFIG.handLostMs) continue;
-      const side = slot === slots.left ? '左手' : '右手';
+      const side = sideLabel(slot);
       const active = slot.fire.firing || slot.fire.intensity > 0.15;
       const label = getMode() === 'glow' ? '微光' : '燃烧';
       const gesture = slot.gesture.label !== 'none'
@@ -76,7 +82,7 @@ export function createUI({
     const out = {};
     for (const slot of slotList) {
       const g = slot.gesture;
-      out[slot === slots.left ? 'left' : 'right'] = {
+      out[slot.name] = {
         detected: g.detected,
         label: g.label,
         candidate: g.candidate,
@@ -110,9 +116,12 @@ export function createUI({
       // Tuning aid: pop the current numbers on the clipboard for a bug report.
       const text = JSON.stringify(snapshot(), null, 2);
       navigator.clipboard?.writeText(text)
-        .then(() => { copiedUntil = performance.now() + 1500; })
+        .then(() => { copiedUntil = performance.now() + COPIED_MS; })
         .catch(() => {});
       console.log(text);
+    }
+    if (e.key === 's' || e.key === 'S') {
+      onToggleSignal?.(signalPanel.toggle());
     }
   });
 
@@ -121,7 +130,7 @@ export function createUI({
     const lines = [];
     for (const slot of slotList) {
       const g = slot.gesture;
-      const side = slot === slots.left ? '左手' : '右手';
+      const side = sideLabel(slot);
       if (!g.detected) {
         lines.push(side + '  未检测到');
         continue;
@@ -189,9 +198,11 @@ export function createUI({
       for (const side of ['left', 'right']) {
         const m = metrics.hands?.[side];
         lines.push(formatHandMetrics(side, m, def.metric));
-        if (m && m.detected && (m.coverage < 0.9 || m.handSwap)) {
+        if (m && m.detected && (m.coverage < COVERAGE_WARN || m.handSwap)) {
           const flags = [];
-          if (m.coverage < 0.9) flags.push('覆盖率 ' + Math.round(m.coverage * 100) + '%');
+          if (m.coverage < COVERAGE_WARN) {
+            flags.push('覆盖率 ' + Math.round(m.coverage * 100) + '%');
+          }
           if (m.handSwap) flags.push('中途换手');
           lines.push('  ⚠ ' + flags.join(' · '));
         }
@@ -200,7 +211,19 @@ export function createUI({
     lines.push('已保存 JSON');
     resultPanel.textContent = lines.join('\n');
     resultPanel.hidden = false;
-    resultTimer = setTimeout(hideResult, 15000);
+    resultTimer = setTimeout(hideResult, RESULT_VISIBLE_MS);
+  }
+
+  function syncSignal(def) {
+    signalPanel.sync(def);
+  }
+
+  function toggleSignalPanel(next) {
+    return signalPanel.toggle(next);
+  }
+
+  function updateSignalPanel(monitor, def, now) {
+    signalPanel.update(monitor, def, now);
   }
 
   return {
@@ -212,15 +235,19 @@ export function createUI({
     setProtocolPhase,
     showResult,
     hideResult,
+    syncSignal,
+    toggleSignalPanel,
+    updateSignalPanel,
   };
+}
+
+function sideLabel(slot) {
+  return slot.name === 'left' ? '左手' : '右手';
 }
 
 function formatHandMetrics(side, m, metric) {
   const cn = side === 'left' ? '左手' : '右手';
   if (!m || !m.detected) return `${cn}  未检测到有效数据`;
-  if (metric === 'tap') {
-    return `${cn}  敲击 ${m.count} 次 · ${m.freqHz.toFixed(1)} Hz · 幅度 ${m.amplitude.toFixed(2)}`;
-  }
   if (metric === 'cycle') {
     return `${cn}  开合 ${m.count} 次 · ${m.freqHz.toFixed(1)} Hz · 幅度 ${m.amplitude.toFixed(2)}`;
   }
