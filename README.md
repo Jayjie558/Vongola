@@ -2,7 +2,7 @@
 
 浏览器里的实时手部 AR 演示：通过摄像头和 MediaPipe Hands 追踪双手，把 3D 手套模型重定向到真实手上；握拳时让手套发出暖色微光，或点燃程序化的大空火焰（两种模式可切换），张手熄灭。
 
-纯静态前端，无后端、无构建步骤。
+浏览器版本是纯静态前端，无后端、无构建步骤；同一套代码也可以打包成免安装的 Windows 桌面 exe（Electron）。
 
 ## 特性
 
@@ -38,9 +38,19 @@
 
 ## 最短用法
 
-在终端运行 `node server.js`，浏览器打开 <http://127.0.0.1:8741/> 并允许摄像头，把手放进画面即可。握拳点亮或点火，张手熄灭；左下角切换「手套微光 / 球形火焰」。要记录动作时，在底部选择「握拳张开」或「旋前旋后」，再点「开始」。
+想直接体验就双击 `GloveAR-1.1.0.exe`（免安装，首次启动稍慢），允许摄像头后把手放进画面即可。从源码运行时在终端执行 `node server.js`，浏览器打开 <http://127.0.0.1:8741/> 并允许摄像头。
+
+把手放进画面后：握拳点亮或点火，张手熄灭；左下角切换「手套微光 / 球形火焰」。要记录动作时，在底部选择「握拳张开」或「旋前旋后」，再点「开始」。
 
 ## 运行
+
+### 桌面版（推荐）
+
+双击 `GloveAR-1.1.0.exe` 即可，免安装、不需要浏览器。MediaPipe Hands 的脚本与模型已随包分发，运行时不需要联网。
+
+exe 未做代码签名，Windows SmartScreen 可能提示「已保护你的电脑」，选择「更多信息 → 仍要运行」即可。
+
+### 从源码运行
 
 需要 Node.js（仅用于静态文件服务）和支持摄像头权限的现代浏览器（推荐 Chrome / Edge）。
 
@@ -51,6 +61,17 @@ node server.js
 打开 <http://127.0.0.1:8741/>，允许摄像头权限即可。
 
 Windows 下也可以直接双击 `start.cmd`：它会启动服务并打开浏览器。
+
+### 构建 Windows exe
+
+```bash
+npm install
+npm run dist
+```
+
+产物为 `dist/GloveAR-1.1.0.exe`（免安装单文件）。`npm run dist:dir` 只生成未压缩的 `dist/win-unpacked/`，调试时更快。
+
+桌面版启动时会在本机回环地址上开一个随机端口的静态服务，再让窗口加载它——摄像头需要安全上下文（`https` 或 `localhost`），这一步是为了满足该限制。窗口内只允许摄像头权限，外部链接交给系统浏览器。
 
 ## 操作
 
@@ -135,6 +156,11 @@ http://127.0.0.1:8741/?selftest=1&two=1&fist=1&fire=1
 index.html          页面与 importmap
 server.js           极简静态服务器（仅监听 127.0.0.1）
 start.cmd           Windows 启动脚本
+package.json        桌面版依赖与 electron-builder 打包配置
+electron/
+  main.js           桌面窗口、摄像头权限、窗口生命周期
+  static-server.js  本地回环静态服务（为摄像头提供安全上下文）
+  icon.ico          Windows 应用图标
 js/
   app.js            启动、渲染管线与帧循环编排
   config.js         可调参数（阈值、平滑、辉光强度等）
@@ -161,19 +187,22 @@ js/
   selftest.js       合成手自检
 css/style.css       页面样式
 glove.glb           手套模型
-vendor/             three.js 及其 addons（MIT）
+vendor/
+  *.js              three.js 及其 addons（MIT）
+  mediapipe/        MediaPipe Hands 运行时与手部模型（Apache-2.0）
 ```
 
 ## 隐私
 
-- 摄像头画面只在本机浏览器中处理，**不会上传**。
-- MediaPipe Hands 的脚本和模型文件从 jsDelivr CDN 加载，页面本身不发送图像。
-- 模型推理在浏览器本地完成。
+- 摄像头画面只在本机处理，**不会上传**。
+- MediaPipe Hands 的脚本与模型放在 `vendor/mediapipe/`，随项目分发，运行时不再请求 CDN；桌面版可以完全离线使用。
+- 模型推理在本机完成。
 
 ## 第三方资源
 
 - [three.js](https://github.com/mrdoob/three.js) — MIT
-- [MediaPipe Hands](https://github.com/google-ai-edge/mediapipe) — Apache-2.0（运行时从 CDN 加载）
+- [MediaPipe Hands](https://github.com/google-ai-edge/mediapipe) — Apache-2.0（`vendor/mediapipe/`，`@mediapipe/hands` 0.4.1675469240）
+- [Electron](https://www.electronjs.org/) — MIT（桌面版运行时，内含 Chromium，随包附带许可文件）
 
 完整声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 

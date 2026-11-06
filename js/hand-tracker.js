@@ -1,11 +1,11 @@
 import { CONFIG } from './config.js';
 
-const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/';
+const MP_BASE = new URL('../vendor/mediapipe/', import.meta.url).href;
 
 export async function startTracking({ video, onResults }) {
   const Hands = window.Hands;
   if (typeof Hands === 'undefined') {
-    throw new Error('MediaPipe Hands 未加载（检查网络/CDN）');
+    throw new Error('MediaPipe Hands 未加载（检查 vendor/mediapipe）');
   }
 
   const stream = await navigator.mediaDevices.getUserMedia({

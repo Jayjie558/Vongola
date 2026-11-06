@@ -30,10 +30,23 @@ Licensed under the MIT License:
 
 ## MediaPipe Hands
 
-The page loads `@mediapipe/hands` at runtime from jsDelivr; no MediaPipe files
-are bundled in this repository.
+Files under `vendor/mediapipe/` are copies of the `@mediapipe/hands` 0.4.1675469240
+runtime (JavaScript, WebAssembly, binary graph and hand landmark models). They are
+bundled with this project and served locally; no CDN request is made at runtime.
 
 Copyright 2023 Google LLC
 Licensed under the Apache License, Version 2.0
 https://github.com/google-ai-edge/mediapipe
 https://www.apache.org/licenses/LICENSE-2.0
+
+## Electron and Chromium
+
+The Windows desktop build is produced with Electron and packages the Electron
+runtime, which includes Chromium.
+
+Electron: Copyright (c) Electron contributors, Copyright (c) 2013-2020 GitHub Inc.
+Licensed under the MIT License. https://github.com/electron/electron
+
+Chromium: Copyright 2015 The Chromium Authors. Licensed under a BSD-style license.
+The built application includes the upstream notice files `LICENSE.electron.txt`
+and `LICENSES.chromium.html` next to the executable.
