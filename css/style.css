@@ -92,13 +92,129 @@ body {
 
 #hint {
   position: fixed;
-  bottom: 34px;
+  bottom: 76px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
   color: rgba(255, 255, 255, 0.5);
   font-size: 14px;
   pointer-events: none;
+}
+
+#protocol-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 25px;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+#protocol-bar button {
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 17px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+#protocol-bar button:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#protocol-bar button.active {
+  color: #ffc078;
+  background: rgba(255, 150, 60, 0.18);
+  border-color: rgba(255, 150, 60, 0.5);
+}
+
+#protocol-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#protocol-start {
+  background: rgba(255, 150, 60, 0.2);
+  color: #ffc078;
+  border-color: rgba(255, 150, 60, 0.45);
+}
+
+#protocol-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: #fff;
+  text-align: center;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0) 62%);
+}
+
+#protocol-overlay[hidden] {
+  display: none;
+}
+
+#protocol-count {
+  font-size: 110px;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffc078;
+  text-shadow: 0 0 34px rgba(255, 140, 50, 0.6);
+}
+
+#protocol-task {
+  margin-top: 10px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+#protocol-hint {
+  margin-top: 8px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+#result-panel {
+  position: fixed;
+  top: 70px;
+  right: 18px;
+  z-index: 15;
+  min-width: 300px;
+  max-width: 440px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 150, 60, 0.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #fff;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+
+#result-panel[hidden] {
+  display: none;
 }
 
 #mode-switch {

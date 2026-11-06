@@ -9,6 +9,7 @@ import { computeView } from './coords.js';
 import { HandRig } from './hands.js';
 import { createUI } from './ui.js';
 import { SessionRecorder, downloadSession } from './measure.js';
+import { PROTOCOLS, analyzeSession } from './protocols.js';
 import { ZeroBurst } from './zero-burst.js';
 import { startTracking } from './hand-tracker.js';
 import { FireSystem } from './fire.js';
@@ -167,6 +168,11 @@ const slotList = hands.slotList;
 const pairGesture = hands.pair;
 const recorder = new SessionRecorder({ video });
 
+// Selected protocol and the running guided task (lead-in -> timed recording).
+const requestedProtocol = (params.get('protocol') || 'free').toLowerCase();
+let selectedProtocol = PROTOCOLS[requestedProtocol] ? requestedProtocol : 'free';
+let job = null;
+
 // Procedural flame aura sphere around each fist.
 fire.use3dBody = true;
 
@@ -203,14 +209,86 @@ const ui = createUI({
   getMode: () => visualMode,
   onModeChange: (next) => applyMode(next, true),
   onFlip: () => hands.toggleMirror(),
+  onSelectProtocol: (id) => selectProtocol(id),
+  onStartProtocol: () => startProtocol(),
 });
 applyMode(visualMode);
+ui.syncProtocol(PROTOCOLS[selectedProtocol]);
+
+function selectProtocol(id) {
+  // A free recording already carries its protocol id; switching now would
+  // label the running session with the wrong task.
+  if (job || recorder.active || !PROTOCOLS[id]) return;
+  selectedProtocol = id;
+  ui.syncProtocol(PROTOCOLS[id]);
+}
+
+function startProtocol() {
+  if (job) {
+    cancelJob('已取消');
+    return;
+  }
+  const def = PROTOCOLS[selectedProtocol];
+  if (def.id === 'free') {
+    saveSession(recorder.toggle(mode === 'selftest' ? 'selftest' : 'free'));
+    return;
+  }
+  if (recorder.active) return; // still recording a free session
+  job = { def, phase: 'leadIn', t0: performance.now() };
+  ui.setProtocolBusy(true);
+  ui.setProtocolPhase('leadIn', def, def.leadIn);
+}
+
+function cancelJob(message) {
+  if (!job) return;
+  if (job.phase === 'recording') recorder.stop();
+  job = null;
+  ui.setProtocolBusy(false);
+  ui.setProtocolPhase('idle');
+  setStatus(message);
+}
+
+function finishJob() {
+  const def = job.def;
+  const data = recorder.stop();
+  job = null;
+  ui.setProtocolBusy(false);
+  ui.setProtocolPhase('idle');
+  saveSession(data);
+}
+
+function saveSession(data) {
+  if (!data) return;
+  data.metrics = analyzeSession(data);
+  window.__LAST_SESSION = data;
+  downloadSession(data);
+  ui.showResult(data.metrics, PROTOCOLS[data.protocol] || PROTOCOLS.free);
+}
+
+function updateJob(now) {
+  if (job.phase === 'leadIn') {
+    const remain = job.def.leadIn - (now - job.t0) / 1000;
+    if (remain <= 0) {
+      job.phase = 'recording';
+      job.t0 = now;
+      recorder.start(job.def.id);
+      ui.setProtocolPhase('recording');
+    } else {
+      ui.setProtocolPhase('leadIn', job.def, remain);
+    }
+  } else if ((now - job.t0) / 1000 >= job.def.seconds) {
+    finishJob();
+  }
+}
 
 window.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Escape') {
+    if (job) cancelJob('已取消');
+    return;
+  }
   if (e.key !== 'm' && e.key !== 'M') return;
-  const data = recorder.toggle(mode === 'selftest' ? 'selftest' : 'free');
-  if (data) downloadSession(data);
+  startProtocol();
 });
 
 function onResults(results) {
@@ -257,6 +335,7 @@ function frame(now) {
     channels,
   });
 
+  if (job) updateJob(now);
   if (mode !== 'raw') recorder.record(now, view, slotList);
 
   const anchor = hands.getZeroAnchor(view);
@@ -282,13 +361,25 @@ function frame(now) {
 
   if (now - lastStatusAt > 200) {
     lastStatusAt = now;
-    if (mode === 'track') ui.updateStatus(now);
-    ui.updateGesturePanel();
-    recBadge.hidden = !recorder.active;
-    if (recorder.active) {
-      const full = recorder.samples.length >= recorder.maxSamples ? ' (full)' : '';
-      recBadge.textContent = '● REC ' + recorder.samples.length + full;
+    if (job) {
+      recBadge.hidden = false;
+      if (job.phase === 'recording') {
+        const elapsed = (now - job.t0) / 1000;
+        recBadge.textContent = '● REC ' + elapsed.toFixed(1) + ' / ' + job.def.seconds + 's';
+      } else {
+        const remain = job.def.leadIn - (now - job.t0) / 1000;
+        recBadge.textContent = '准备 ' + Math.max(1, Math.ceil(remain));
+      }
+      if (mode === 'track') ui.updateStatus(now);
+    } else {
+      recBadge.hidden = !recorder.active;
+      if (recorder.active) {
+        const full = recorder.samples.length >= recorder.maxSamples ? ' (full)' : '';
+        recBadge.textContent = '● REC ' + recorder.samples.length + full;
+      }
+      if (mode === 'track') ui.updateStatus(now);
     }
+    ui.updateGesturePanel();
   }
 }
 requestAnimationFrame(frame);

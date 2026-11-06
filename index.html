@@ -17,10 +17,23 @@
   <div id="status">正在启动…</div>
   <div id="rec-badge" hidden>● REC</div>
   <div id="gesture-debug" hidden></div>
+  <div id="protocol-overlay" hidden>
+    <div id="protocol-count"></div>
+    <div id="protocol-task"></div>
+    <div id="protocol-hint"></div>
+  </div>
+  <div id="result-panel" hidden></div>
   <div id="hint">握拳点亮 · 张手熄灭 · 支持双手</div>
   <div id="mode-switch" role="group" aria-label="特效模式">
     <button type="button" data-mode="glow">手套微光</button>
     <button type="button" data-mode="flame">球形火焰</button>
+  </div>
+  <div id="protocol-bar" role="group" aria-label="测量协议">
+    <button type="button" data-protocol="free">自由</button>
+    <button type="button" data-protocol="finger_tap">手指敲击</button>
+    <button type="button" data-protocol="open_close">握拳张开</button>
+    <button type="button" data-protocol="pronation_supination">旋前旋后</button>
+    <button type="button" id="protocol-start" hidden>开始</button>
   </div>
   <button id="flip-btn" title="左右手镜像翻转">⇄</button>
 

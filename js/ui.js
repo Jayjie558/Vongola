@@ -14,12 +14,29 @@ export function createUI({
   getMode,
   onModeChange,
   onFlip,
+  onSelectProtocol,
+  onStartProtocol,
 }) {
   const statusEl = document.getElementById('status');
   const hintEl = document.getElementById('hint');
   const gesturePanel = document.getElementById('gesture-debug');
   const modeButtons = [...document.querySelectorAll('#mode-switch button')];
   const flipBtn = document.getElementById('flip-btn');
+  const protocolButtons = [...document.querySelectorAll('#protocol-bar button[data-protocol]')];
+  const protocolStart = document.getElementById('protocol-start');
+  const protocolOverlay = document.getElementById('protocol-overlay');
+  const protocolCount = document.getElementById('protocol-count');
+  const protocolTask = document.getElementById('protocol-task');
+  const protocolHint = document.getElementById('protocol-hint');
+  const resultPanel = document.getElementById('result-panel');
+
+  let resultTimer = 0;
+
+  for (const btn of protocolButtons) {
+    btn.addEventListener('click', () => onSelectProtocol(btn.dataset.protocol));
+  }
+  protocolStart.addEventListener('click', onStartProtocol);
+  resultPanel.addEventListener('click', hideResult);
 
   let gesturePanelOn = params.has('gesture');
   if (gesturePanel) gesturePanel.hidden = !gesturePanelOn;
@@ -130,5 +147,85 @@ export function createUI({
     gesturePanel.textContent = lines.join('\n');
   }
 
-  return { syncMode, updateStatus, updateGesturePanel };
+  function syncProtocol(def) {
+    for (const btn of protocolButtons) {
+      const active = btn.dataset.protocol === def.id;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    }
+    protocolStart.hidden = def.id === 'free';
+    protocolStart.textContent = '开始';
+  }
+
+  function setProtocolBusy(busy) {
+    for (const btn of protocolButtons) btn.disabled = busy;
+    protocolStart.textContent = busy ? '取消' : '开始';
+  }
+
+  // During the lead-in the overlay is the countdown; while the task runs the
+  // REC badge carries progress, so the overlay stays out of the way.
+  function setProtocolPhase(phase, def, remain = 0) {
+    if (phase === 'leadIn') {
+      protocolOverlay.hidden = false;
+      protocolCount.textContent = String(Math.max(1, Math.ceil(remain)));
+      protocolTask.textContent = def.name;
+      protocolHint.textContent = def.hint;
+    } else {
+      protocolOverlay.hidden = true;
+    }
+  }
+
+  function hideResult() {
+    clearTimeout(resultTimer);
+    resultPanel.hidden = true;
+  }
+
+  function showResult(metrics, def) {
+    clearTimeout(resultTimer);
+    const lines = [`${def.name} · ${(metrics.durationMs / 1000).toFixed(1)}s`];
+    if (def.metric === 'none') {
+      lines.push(`${metrics.sampleCount} 个采样`);
+    } else {
+      for (const side of ['left', 'right']) {
+        const m = metrics.hands?.[side];
+        lines.push(formatHandMetrics(side, m, def.metric));
+        if (m && m.detected && (m.coverage < 0.9 || m.handSwap)) {
+          const flags = [];
+          if (m.coverage < 0.9) flags.push('覆盖率 ' + Math.round(m.coverage * 100) + '%');
+          if (m.handSwap) flags.push('中途换手');
+          lines.push('  ⚠ ' + flags.join(' · '));
+        }
+      }
+    }
+    lines.push('已保存 JSON');
+    resultPanel.textContent = lines.join('\n');
+    resultPanel.hidden = false;
+    resultTimer = setTimeout(hideResult, 15000);
+  }
+
+  return {
+    syncMode,
+    updateStatus,
+    updateGesturePanel,
+    syncProtocol,
+    setProtocolBusy,
+    setProtocolPhase,
+    showResult,
+    hideResult,
+  };
+}
+
+function formatHandMetrics(side, m, metric) {
+  const cn = side === 'left' ? '左手' : '右手';
+  if (!m || !m.detected) return `${cn}  未检测到有效数据`;
+  if (metric === 'tap') {
+    return `${cn}  敲击 ${m.count} 次 · ${m.freqHz.toFixed(1)} Hz · 幅度 ${m.amplitude.toFixed(2)}`;
+  }
+  if (metric === 'cycle') {
+    return `${cn}  开合 ${m.count} 次 · ${m.freqHz.toFixed(1)} Hz · 幅度 ${m.amplitude.toFixed(2)}`;
+  }
+  if (metric === 'rotation') {
+    return `${cn}  翻腕 ${m.count.toFixed(1)} 次 · ${m.freqHz.toFixed(1)} Hz · 幅度 ${Math.round(m.rangeDeg)}°`;
+  }
+  return cn;
 }

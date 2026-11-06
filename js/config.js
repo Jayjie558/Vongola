@@ -58,6 +58,24 @@ export const CONFIG = {
   measureHz: 30,
   measureMaxSamples: 9000,
 
+  // Guided measurement protocols: a lead-in countdown, then a fixed-length
+  // task window. Analyzers live in js/protocols.js and run on the same raw
+  // samples, so the thresholds below only affect the derived metrics.
+  protocolLeadIn: 3,
+  protocolSeconds: 10,
+  metricCoverageMin: 0.35,
+  metricTapSmoothMs: 45,
+  metricCycleSmoothMs: 80,
+  metricRotationSmoothMs: 120,
+  // Signal amplitudes are in hand-size units (wrist -> middle knuckle).
+  metricTapMinAmplitude: 0.08,
+  metricCycleMinAmplitude: 0.12,
+  // Rotation must swing at least this far before it counts as a turn.
+  metricRotationMinSwing: 0.26, // ~15 degrees, radians
+  metricRefractoryMs: 100,
+  // Intervals longer than this are tracking dropouts, not rhythm information.
+  metricMaxIntervalMs: 2000,
+
   exposure: 1.05,
 
   // Bloom reads the linear-HDR frame, so only the flame clears the threshold.
