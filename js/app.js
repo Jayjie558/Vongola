@@ -250,6 +250,7 @@ if (params.has('raw')) {
   setStatus('RAW 绑定姿态');
 } else if (params.has('selftest')) {
   mode = 'selftest';
+  setStatus('自检模式 · 合成手');
   const mod = await import('./selftest.js');
   synthetic = mod.createSelftest(slots.left.retarget, setStatus, computeView(video));
 } else {
