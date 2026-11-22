@@ -34,6 +34,25 @@ export const CONFIG = {
   fireOffOpenness: 0.55,
   fireOpacity: 0.6,
 
+  // 魔言书写 (write mode): the extended index fingertip leaves a flame trail
+  // on the frontmost screen plane. Screen pixels / milliseconds; jump is in
+  // hand-size units (wrist -> middle knuckle), like the gesture thresholds.
+  inkSmoothHz: 20,
+  // Multiplier on the four stroke passes (aura / flame / warm core / hot core).
+  inkWidthScale: 4.0,
+  inkFadeAfterMs: 9000,
+  inkFadeMs: 5000,
+  inkMaxStrokes: 24,
+  inkMaxPoints: 4000,
+  inkJumpHandSizes: 0.9,
+  // Pen-up hysteresis: brief gesture flicker or a lost detection frame must
+  // not cut the flame line. A deliberate open hand / fist still lifts at once.
+  inkPenUpGraceMs: 260,
+  // Embers shed from the pen / fresh part of the stroke, per second.
+  inkEmberRate: 26,
+  inkEmberRateHover: 8,
+  inkEmberMax: 400,
+
   // Gesture layer: per-finger curl (0 = straight, 1 = folded). A finger counts
   // as curled above CURLED and extended again below EXTENDED; a gesture must
   // hold for `gestureDebounce` seconds before it is reported.
@@ -63,6 +82,17 @@ export const CONFIG = {
   // samples, so the thresholds below only affect the derived metrics.
   protocolLeadIn: 3,
   protocolSeconds: 10,
+  // 描红数字: a longer window, so the patient can trace the digit repeatedly.
+  protocolWriteSeconds: 20,
+  writingGuideDigit: '8',
+  // Accuracy tolerance in box-height units (about 1.6 cm if the guide is 40 cm).
+  writingAccuracyTolerance: 0.04,
+  writingMinStrokeMs: 120,
+  writingMinStrokePoints: 5,
+  writingGapMs: 300,
+  // In-air writing tremor band. Analyzers reuse the raw 30 Hz samples.
+  writingTremorLowHz: 4,
+  writingTremorHighHz: 8,
   metricCoverageMin: 0.35,
   metricCycleSmoothMs: 80,
   metricRotationSmoothMs: 120,

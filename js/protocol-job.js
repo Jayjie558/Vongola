@@ -8,7 +8,10 @@ import { PROTOCOLS, analyzeSession } from './protocols.js';
 import { downloadSession } from './measure.js';
 
 export class ProtocolJob {
-  constructor({ recorder, ui, signalMonitor, setStatus, getSource, onSaved }) {
+  constructor({
+    recorder, ui, signalMonitor, setStatus, getSource, onSaved,
+    onProtocolChange, getTaskMeta, onTaskStart,
+  }) {
     this.recorder = recorder;
     this.ui = ui;
     this.signalMonitor = signalMonitor;
@@ -16,6 +19,12 @@ export class ProtocolJob {
     // Source label for a free recording; selftest sessions are marked as such.
     this.getSource = getSource || (() => 'free');
     this.onSaved = onSaved || (() => {});
+    // The app owns the visual side of a task (e.g. the trace target); this
+    // module only reports which protocol is selected. getTaskMeta supplies
+    // task-specific data (guide box/points) that analysis needs.
+    this.onProtocolChange = onProtocolChange || (() => {});
+    this.getTaskMeta = getTaskMeta || (() => null);
+    this.onTaskStart = onTaskStart || (() => {});
     this.selected = 'free';
     this.job = null;
   }
@@ -25,6 +34,7 @@ export class ProtocolJob {
   init(id) {
     this.selected = PROTOCOLS[id] ? id : 'free';
     this.syncUI();
+    this.onProtocolChange(this.def);
   }
 
   get def() {
@@ -41,6 +51,7 @@ export class ProtocolJob {
     if (this.job || this.recorder.active || !PROTOCOLS[id]) return false;
     this.selected = id;
     this.syncUI();
+    this.onProtocolChange(this.def);
     return true;
   }
 
@@ -63,6 +74,10 @@ export class ProtocolJob {
       return;
     }
     if (this.recorder.active) return; // still recording a free session
+    // A new task starts clean: clear the previous result and any task visuals
+    // (the app decides what "task visuals" means).
+    this.ui.hideResult();
+    this.onTaskStart(def);
     this.job = { def, phase: 'leadIn', t0: now };
     this.ui.setProtocolBusy(true);
     this.ui.setProtocolPhase('leadIn', def, def.leadIn);
@@ -88,6 +103,8 @@ export class ProtocolJob {
       }
       this.job.phase = 'recording';
       this.job.t0 = now;
+      // Wipe the warm-up ink so the recorded window starts on a clean canvas.
+      this.onTaskStart(this.job.def);
       this.recorder.start(this.job.def.id);
       this.ui.setProtocolPhase('recording');
       return;
@@ -115,6 +132,8 @@ export class ProtocolJob {
 
   save(data) {
     if (!data) return;
+    const task = this.getTaskMeta(data);
+    if (task) data.task = { ...(data.task || {}), ...task };
     data.metrics = analyzeSession(data);
     this.onSaved(data);
     downloadSession(data);

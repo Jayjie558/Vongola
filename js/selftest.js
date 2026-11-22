@@ -12,6 +12,7 @@ export function createSelftest(retarget, setStatus, view) {
   const sixPath = selftestParams.has('six');
   const gunPath = selftestParams.has('gun');
   const gunvPath = selftestParams.has('gunv');
+  const pointPath = selftestParams.has('point');
   const zeroPath = selftestParams.has('zero');
   const bones = retarget.bones;
   const head = (name) => bones[name].getWorldPosition(new THREE.Vector3());
@@ -89,10 +90,23 @@ export function createSelftest(retarget, setStatus, view) {
   } else if (gunvPath) {
     // pistol with the middle finger added: thumb + index + middle out
     for (const chain of [[13, 14, 15, 16], [17, 18, 19, 20]]) fold(chain);
+  } else if (pointPath) {
+    // index out, everything else folded (thumb too, otherwise it reads as gun)
+    for (const chain of [[9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20], [1, 2, 3, 4]]) {
+      fold(chain);
+    }
   } else {
     for (const [i0, i1] of [[10, 11], [11, 12], [6, 7], [7, 8], [14, 15], [15, 16], [18, 19], [19, 20]]) {
       curl(world[i1], world[i0], i0 === 10 || i0 === 11 ? -0.62 : -0.34);
     }
+  }
+
+  // The synthetic thumb does not fold close enough to the palm to read as
+  // curled, which would classify a pointing pose as `gun`. Pull it inward so
+  // the point gesture (and therefore the ink pen) is what the test exercises.
+  if (pointPath) {
+    const palm = world[9];
+    for (const i of [1, 2, 3, 4]) world[i].lerp(palm, 0.65);
   }
 
   // ?mirror=1 feeds a physically right-handed pose (reflected across the palm
@@ -163,8 +177,23 @@ export function createSelftest(retarget, setStatus, view) {
     next() {
       frames++;
       if (frames === 90 && !done) report();
+      // ?point=1 sweeps the pointing hand so the ink layer has a real stroke
+      // to draw. The offset is authored in screen pixels, then converted back
+      // to normalized landmarks through the covered-video rect.
+      let primary = lms;
+      if (pointPath) {
+        const sec = performance.now() * 0.001;
+        const dx = Math.cos(sec * 1.15) * view.cw * 0.1;
+        // bias downward so the raised index tip stays well inside the frame
+        const dy = view.ch * 0.12 + Math.sin(sec * 1.7) * view.ch * 0.08;
+        primary = lms.map((lm) => ({
+          x: lm.x - dx / view.rw,
+          y: lm.y + dy / view.rh,
+          z: lm.z,
+        }));
+      }
       // raw-camera MediaPipe label: a real left hand reads as 'Right'
-      const list = [{ lms, label: mirrorPath ? 'Left' : 'Right' }];
+      const list = [{ lms: primary, label: mirrorPath ? 'Left' : 'Right' }];
       if (zeroHands) return zeroHands;
       if (twoHands) {
         // second synthetic hand sits to the side, opposite handedness

@@ -16,24 +16,34 @@ import { createTremorPanel } from './tremor-panel.js';
 import { ZeroBurst } from './zero-burst.js';
 import { startTracking } from './hand-tracker.js';
 import { FireSystem } from './fire.js';
+import { InkWriter } from './ink.js';
 
 const video = document.getElementById('webcam');
 const canvas = document.getElementById('gl-canvas');
 const fireCanvas = document.getElementById('fire-canvas');
+const inkCanvas = document.getElementById('ink-canvas');
 const statusEl = document.getElementById('status');
 const recBadge = document.getElementById('rec-badge');
 
 const params = new URLSearchParams(location.search);
-const MODE = { glow: 'glow', flame: 'flame' };
+const digitParam = params.get('digit') || '';
+const guideDigit = /^[0-9]$/.test(digitParam) ? digitParam : CONFIG.writingGuideDigit;
+const MODE = { glow: 'glow', flame: 'flame', write: 'write' };
 function initialMode() {
+  if (params.has('write')) return MODE.write;
   const v = (params.get('mode') || CONFIG.defaultMode).toLowerCase();
+  if (v === 'write' || v === 'ink' || v === '3') return MODE.write;
   return v === 'flame' || v === 'fire' || v === '2' ? MODE.flame : MODE.glow;
 }
 let visualMode = initialMode();
 // Each visual mode is just a weight per effect; the effect modules never see
-// the mode name itself.
+// the mode name itself. `zeroGlow` gates the 零点突破 glow separately because
+// it is additive to the fist glow, and write mode shows no glove glow at all.
 function modeChannels(mode) {
-  return mode === MODE.glow ? { flame: 0, glow: 1 } : { flame: 1, glow: 0 };
+  if (mode === MODE.write) return { flame: 0, glow: 0, zeroGlow: 0 };
+  return mode === MODE.glow
+    ? { flame: 0, glow: 1, zeroGlow: 1 }
+    : { flame: 1, glow: 0, zeroGlow: 1 };
 }
 let channels = modeChannels(visualMode);
 
@@ -71,6 +81,7 @@ scene.add(rimLight);
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
 const fire = new FireSystem(fireCanvas);
+const ink = new InkWriter(inkCanvas);
 const zeroBurst = new ZeroBurst(scene);
 
 // Bloom only the flame: the glove is bright metal and would smear if the whole
@@ -147,6 +158,8 @@ function resize() {
   camera.bottom = -0.5;
   camera.updateProjectionMatrix();
   fire.resize();
+  ink.resize();
+  ink.clear();
   zeroBurst.setPixelRatio(dpr);
 }
 window.addEventListener('resize', resize);
@@ -190,11 +203,13 @@ let mode = 'track';
 function applyMode(next, updateUrl = false) {
   visualMode = next;
   channels = modeChannels(next);
-  fire.glowOnly = next === MODE.glow;
+  // Only flame mode paints the 2D fire layer; glow and write keep it empty.
+  fire.glowOnly = next !== MODE.flame;
+  ink.setEnabled(next === MODE.write);
   ui.syncMode(next);
   // Swap visuals immediately instead of waiting for either side to fade out.
   for (const slot of slotList) {
-    if (next === MODE.glow && slot.flame) {
+    if (next !== MODE.flame && slot.flame) {
       slot.flame.mesh.visible = false;
       slot.flame.light.visible = false;
     }
@@ -221,6 +236,13 @@ const ui = createUI({
   onToggleSignal: (on) => signalMonitor.setEnabled(on),
 });
 
+// Snapshot of the trace target taken when the recording window starts, so a
+// resize mid-task cannot move the box under already-recorded samples.
+let taskGuideMeta = null;
+// Ink break counters at recording start; the delta lands in the session's
+// task.inkBreaks so a real-hand run can be diagnosed after the fact.
+let taskBreaksAtStart = null;
+
 protocolJob = new ProtocolJob({
   recorder,
   ui,
@@ -228,6 +250,40 @@ protocolJob = new ProtocolJob({
   setStatus,
   getSource: () => (mode === 'selftest' ? 'selftest' : 'free'),
   onSaved: (data) => { window.__LAST_SESSION = data; },
+  // The trace target belongs to the air_write protocol; the app owns the visual
+  // layer, ProtocolJob only reports selection changes and reads the guide back
+  // when a session is saved.
+  onProtocolChange: (def) => {
+    taskGuideMeta = null;
+    taskBreaksAtStart = null;
+    if (def.id === 'air_write') {
+      ink.setGuideDigit(guideDigit);
+      // Selecting the trace task implies writing; otherwise the guide would
+      // be selected but invisible behind the glove modes.
+      if (visualMode !== MODE.write) applyMode(MODE.write, true);
+    } else {
+      ink.setGuideDigit(null);
+    }
+  },
+  getTaskMeta: () => {
+    const out = {};
+    if (taskGuideMeta) out.writing = taskGuideMeta;
+    if (taskBreaksAtStart) {
+      out.inkBreaks = {};
+      for (const [reason, n] of Object.entries(ink.breaks)) {
+        out.inkBreaks[reason] = n - (taskBreaksAtStart[reason] || 0);
+      }
+    }
+    return Object.keys(out).length ? out : null;
+  },
+  onTaskStart: (def) => {
+    if (def.id === 'air_write') {
+      // Fires at task start and again when recording actually begins.
+      ink.clear();
+      taskGuideMeta = ink.getGuideMeta();
+      taskBreaksAtStart = { ...ink.breaks };
+    }
+  },
 });
 applyMode(visualMode);
 protocolJob.init((params.get('protocol') || 'free').toLowerCase());
@@ -305,6 +361,8 @@ function frame(now) {
     channels,
   });
 
+  ink.update(dt, view, slotList, t, visualMode === MODE.write);
+
   protocolJob.update(now);
   if (mode !== 'raw') {
     recorder.record(now, view, slotList);
@@ -314,8 +372,9 @@ function frame(now) {
   ui.updateSignalPanel(signalMonitor, protocolJob.def, now);
   tremorPanel.update(tremorMonitor, now);
 
+  const zeroActive = visualMode !== MODE.write && hands.pair.active;
   const anchor = hands.getZeroAnchor(view);
-  zeroBurst.update(t, hands.pair.active, anchor ? anchor.center : null, anchor ? anchor.size : 0);
+  zeroBurst.update(t, zeroActive, anchor ? anchor.center : null, anchor ? anchor.size : 0);
 
   fire.render(dt);
 
@@ -340,7 +399,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 window.__GLOVE = {
-  slots, slotList, fire, pair: pairGesture, zeroBurst, mode, scene, camera, renderer, recorder,
+  slots, slotList, fire, ink, pair: pairGesture, zeroBurst, mode, scene, camera, renderer, recorder,
   signalMonitor, protocolJob, tremorMonitor, tremorPanel,
   get visualMode() { return visualMode; },
   setMode: (m) => applyMode(m),

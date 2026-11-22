@@ -2,7 +2,7 @@
 // gesture debug panel (?gesture=1 / G, C to copy a snapshot), and the protocol
 // overlay/result. The live signal panel lives in signal-panel.js.
 import { CONFIG } from './config.js';
-import { GESTURE_LABELS } from './gesture.js';
+import { GESTURE_LABELS, isWriteGesture } from './gesture.js';
 import { createSignalPanel } from './signal-panel.js';
 
 const FINGER_CN = { thumb: '拇', index: '食', middle: '中', ring: '无', pinky: '小' };
@@ -60,19 +60,27 @@ export function createUI({
     }
     hintEl.textContent = next === 'glow'
       ? '握拳点亮 · 张手熄灭 · 支持双手'
-      : '握拳点火 · 张手熄灭 · 支持双手';
+      : next === 'write'
+        ? '伸出食指书写 · 收指抬笔 · 手套不发光'
+        : '握拳点火 · 张手熄灭 · 支持双手';
   }
 
   function updateStatus(now) {
     const parts = [];
+    const mode = getMode();
     for (const slot of slotList) {
       if (!slot.latest || now - slot.latest.t >= CONFIG.handLostMs) continue;
       const side = sideLabel(slot);
-      const active = slot.fire.firing || slot.fire.intensity > 0.15;
-      const label = getMode() === 'glow' ? '微光' : '燃烧';
       const gesture = slot.gesture.label !== 'none'
         ? ' · ' + GESTURE_LABELS[slot.gesture.label] : '';
-      parts.push(side + gesture + (active ? ' · ' + label : ' · 已贴合'));
+      let state;
+      if (mode === 'write') {
+        state = isWriteGesture(slot.gesture.label) ? '书写中' : '已贴合';
+      } else {
+        const active = slot.fire.firing || slot.fire.intensity > 0.15;
+        state = active ? (mode === 'glow' ? '微光' : '燃烧') : '已贴合';
+      }
+      parts.push(side + gesture + ' · ' + state);
     }
     if (pairGesture.active) parts.push('零点突破');
     statusEl.textContent = parts.length ? parts.join('    ') : '请把手放进画面';
@@ -176,11 +184,15 @@ export function createUI({
   function setProtocolPhase(phase, def, remain = 0) {
     if (phase === 'leadIn') {
       protocolOverlay.hidden = false;
+      // The writing task needs the whole digit visible during the countdown,
+      // so its overlay is compact and pinned under the status bar.
+      protocolOverlay.classList.toggle('writing', def.metric === 'writing');
       protocolCount.textContent = String(Math.max(1, Math.ceil(remain)));
       protocolTask.textContent = def.name;
       protocolHint.textContent = def.hint;
     } else {
       protocolOverlay.hidden = true;
+      protocolOverlay.classList.remove('writing');
     }
   }
 
@@ -208,6 +220,7 @@ export function createUI({
         }
       }
     }
+    if (def.metric === 'writing') lines.push('参考指标 · 非医疗诊断');
     lines.push('已保存 JSON');
     resultPanel.textContent = lines.join('\n');
     resultPanel.hidden = false;
@@ -253,6 +266,15 @@ function formatHandMetrics(side, m, metric) {
   }
   if (metric === 'rotation') {
     return `${cn}  翻腕 ${m.count.toFixed(1)} 次 · ${m.freqHz.toFixed(1)} Hz · 幅度 ${Math.round(m.rangeDeg)}°`;
+  }
+  if (metric === 'writing') {
+    const pct = (v) => (v == null ? '—' : Math.round(v * 100) + '%');
+    const dev = m.meanError == null ? '—' : (m.meanError * 100).toFixed(1) + '%';
+    const repeat = m.repeatCv == null ? '—' : m.repeatCv.toFixed(2);
+    return [
+      `${cn}  笔画 ${m.strokes} · 覆盖 ${pct(m.coverageRate)} · 偏差 ${dev}`,
+      `  速度峰 ${m.peaksPerStroke.toFixed(1)}/笔 · 停顿 ${Math.round(m.pauseRatio * 100)}% · 抖动 ${(m.tremorRms * 100).toFixed(2)}% · 重复变异 ${repeat}`,
+    ].join('\n');
   }
   return cn;
 }

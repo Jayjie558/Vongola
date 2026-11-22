@@ -34,6 +34,14 @@ export const PROTOCOLS = {
     seconds: CONFIG.protocolSeconds,
     hint: '手掌朝上 / 朝下反复翻转，前臂保持不动',
   },
+  air_write: {
+    id: 'air_write',
+    name: '描红数字',
+    metric: 'writing',
+    leadIn: CONFIG.protocolLeadIn,
+    seconds: CONFIG.protocolWriteSeconds,
+    hint: '用食指沿淡橙色数字描红，抬指可分笔',
+  },
 };
 
 const FINGERTIPS = [8, 12, 16, 20];
@@ -56,8 +64,12 @@ export function analyzeSession(data, protocolId = data.protocol) {
   if (def.metric === 'none' || samples.length === 0) return result;
 
   const video = data.environment?.video || [640, 480];
+  const guide = data.task?.writing || null;
+  if (def.metric === 'writing') result.digit = guide?.digit ?? null;
   for (const side of SIDE_NAMES) {
-    result.hands[side] = analyzeHand(samples, side, def.metric, video);
+    result.hands[side] = def.metric === 'writing'
+      ? analyzeWriting(samples, side, video, guide)
+      : analyzeHand(samples, side, def.metric, video);
   }
   return result;
 }
@@ -119,6 +131,196 @@ function analyzeHand(samples, side, metric, video) {
     amplitude: m.amplitude,
     intervalCv: m.intervalCv,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 描红数字: trace accuracy plus control-quality numbers from the index tip.
+
+// Must match WRITE_GESTURES in gesture.js. Kept local so this module stays
+// standalone (gesture.js pulls in THREE through coords.js).
+const WRITE_LABELS = new Set(['point', 'gun']);
+const WRITE_TIP = 8;
+
+function analyzeWriting(samples, side, video, guide) {
+  const labels = new Map();
+  let present = 0;
+  let firstT = null;
+  let lastT = null;
+  let maxGapMs = 0;
+  let box = guide?.box || null;
+
+  // Strokes in box-normalized units: x/y are divided by the box height, with
+  // the box center as origin. A stroke ends on pen up, a tracking gap, or a
+  // single-frame jump too large to be real motion.
+  const strokes = [];
+  let cur = null;
+  let prev = null;
+
+  const closeStroke = () => {
+    if (!cur) return;
+    const a = cur.points[0];
+    const b = cur.points[cur.points.length - 1];
+    cur.durationMs = b.t - a.t;
+    if (cur.points.length >= CONFIG.writingMinStrokePoints
+      && cur.durationMs >= CONFIG.writingMinStrokeMs) {
+      strokes.push(cur);
+    }
+    cur = null;
+    prev = null;
+  };
+
+  for (const sample of samples) {
+    const hand = sample[side];
+    if (!hand || !Array.isArray(hand.landmarks) || hand.landmarks.length < 21) {
+      closeStroke();
+      continue;
+    }
+    present++;
+    const label = hand.label || '—';
+    labels.set(label, (labels.get(label) || 0) + 1);
+
+    const t = sample.t;
+    if (firstT === null) firstT = t;
+    if (lastT !== null) maxGapMs = Math.max(maxGapMs, t - lastT);
+    lastT = t;
+
+    if (!box) {
+      box = { cx: sample.cw / 2, cy: sample.ch / 2, w: sample.ch, h: sample.ch };
+    }
+
+    const penDown = hand.gesture ? WRITE_LABELS.has(hand.gesture) : true;
+    if (!penDown) {
+      closeStroke();
+      continue;
+    }
+
+    const view = makeView(sample, video);
+    // Recorder output is [x, y, z]; accept objects too (see measureValue).
+    const tip = toLandmark(hand.landmarks[WRITE_TIP]);
+    const wrist = toLandmark(hand.landmarks[0]);
+    const mcp = toLandmark(hand.landmarks[9]);
+    const px = (1 - tip.x) * view.rw + view.ox;
+    const py = tip.y * view.rh + view.oy;
+    const p = {
+      t,
+      x: (px - box.cx) / box.h,
+      y: (py - box.cy) / box.h,
+    };
+
+    const wPx = (1 - wrist.x) * view.rw + view.ox;
+    const wPy = wrist.y * view.rh + view.oy;
+    const mPx = (1 - mcp.x) * view.rw + view.ox;
+    const mPy = mcp.y * view.rh + view.oy;
+    const handSize = Math.hypot(mPx - wPx, mPy - wPy) / box.h;
+
+    const breaks = !cur
+      || t - prev.t > CONFIG.writingGapMs
+      || dist2(p, prev) > Math.max(0.08, handSize * CONFIG.inkJumpHandSizes);
+    if (breaks) {
+      closeStroke();
+      cur = { points: [p], durationMs: 0 };
+    } else {
+      cur.points.push(p);
+    }
+    prev = p;
+  }
+  closeStroke();
+
+  const coverage = samples.length ? present / samples.length : 0;
+  const spanMs = firstT !== null ? lastT - firstT : 0;
+  const out = {
+    detected: coverage >= CONFIG.metricCoverageMin && strokes.length > 0,
+    coverage: round(coverage, 3),
+    spanMs: Math.round(spanMs),
+    maxGapMs: Math.round(maxGapMs),
+    handSwap: detectHandSwap(labels, present),
+    strokes: strokes.length,
+    points: strokes.reduce((n, s) => n + s.points.length, 0),
+    durationMs: Math.round(strokes.reduce((n, s) => n + s.durationMs, 0)),
+    digit: guide?.digit ?? null,
+    // Accuracy / coverage stay null when no guide was recorded.
+    meanError: null,
+    p90Error: null,
+    coverageRate: null,
+    tolerance: guide?.tolerance ?? null,
+    meanSpeed: 0,
+    peakSpeed: 0,
+    peaksPerStroke: 0,
+    pauseRatio: 0,
+    tremorRms: 0,
+    // Consistency needs at least two traced strokes; null means "not enough".
+    repeatCv: null,
+  };
+  if (!out.detected) return out;
+
+  const flat = [];
+  for (const stroke of strokes) for (const p of stroke.points) flat.push(p);
+
+  // --- trace accuracy vs. the guide point cloud -----------------------------
+  if (guide && Array.isArray(guide.points) && guide.points.length) {
+    const errs = flat.map((p) => Math.sqrt(nearestSq(p, guide.points)));
+    out.meanError = round(mean(errs), 4);
+    out.p90Error = round(percentile(errs, 0.9), 4);
+
+    const tolSq = (guide.tolerance ?? CONFIG.writingAccuracyTolerance) ** 2;
+    let covered = 0;
+    for (const g of guide.points) {
+      for (const p of flat) {
+        const dx = p.x - g.x;
+        const dy = p.y - g.y;
+        if (dx * dx + dy * dy <= tolSq) {
+          covered++;
+          break;
+        }
+      }
+    }
+    out.coverageRate = round(covered / guide.points.length, 3);
+    if (strokes.length >= 2) {
+      out.repeatCv = round(
+        cv(strokes.map((s) => meanErrorOf(s.points, guide.points))), 3);
+    }
+  }
+
+  // --- speed profile / pauses / submovements --------------------------------
+  const allSpeeds = [];
+  let peaks = 0;
+  for (const stroke of strokes) {
+    const speeds = [];
+    for (let i = 1; i < stroke.points.length; i++) {
+      const a = stroke.points[i - 1];
+      const b = stroke.points[i];
+      const dt = (b.t - a.t) / 1000;
+      if (dt > 0) speeds.push({ t: b.t, v: dist2(a, b) / dt });
+    }
+    if (speeds.length < 2) continue;
+    const smooth = emaSmooth(speeds, 80);
+    allSpeeds.push(...smooth.map((p) => p.v));
+    const peak = Math.max(...smooth.map((p) => p.v));
+    let lastPeakT = -Infinity;
+    for (let i = 1; i < smooth.length - 1; i++) {
+      const v = smooth[i].v;
+      if (v < peak * 0.25) continue;
+      if (v >= smooth[i - 1].v && v >= smooth[i + 1].v
+        && smooth[i].t - lastPeakT >= 120) {
+        peaks++;
+        lastPeakT = smooth[i].t;
+      }
+    }
+  }
+  if (allSpeeds.length) {
+    const meanSpeed = mean(allSpeeds);
+    const pauseAt = Math.max(0.05, meanSpeed * 0.15);
+    out.meanSpeed = round(meanSpeed, 3);
+    out.peakSpeed = round(Math.max(...allSpeeds), 3);
+    out.peaksPerStroke = round(peaks / strokes.length, 2);
+    out.pauseRatio = round(
+      allSpeeds.filter((v) => v < pauseAt).length / allSpeeds.length, 3);
+  }
+
+  // --- 4-8 Hz tremor in the fingertip path (box units) ----------------------
+  out.tremorRms = round(
+    bandpassRms(strokes, CONFIG.writingTremorLowHz, CONFIG.writingTremorHighHz), 5);
+  return out;
 }
 
 // Rolling-window summary for the live signal panel. Uses the same detectors as
@@ -405,6 +607,63 @@ function cv(values) {
 function round(v, digits) {
   const p = 10 ** digits;
   return Math.round(v * p) / p;
+}
+
+function mean(values) {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+}
+
+function nearestSq(p, refs) {
+  let best = Infinity;
+  for (const r of refs) {
+    const dx = p.x - r.x;
+    const dy = p.y - r.y;
+    const d = dx * dx + dy * dy;
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+function meanErrorOf(points, refs) {
+  if (!points.length) return 0;
+  let sum = 0;
+  for (const p of points) sum += Math.sqrt(nearestSq(p, refs));
+  return sum / points.length;
+}
+
+// One-pole high-pass at lowHz followed by a one-pole low-pass at highHz, per
+// axis. Filters reset on each stroke so a pen-up gap never rings into the next
+// one. Returns RMS displacement in box-height units.
+function bandpassRms(strokes, lowHz, highHz) {
+  let sum = 0;
+  let n = 0;
+  for (const stroke of strokes) {
+    const pts = stroke.points;
+    if (pts.length < 3) continue;
+    let hpX = 0;
+    let hpY = 0;
+    let lpX = 0;
+    let lpY = 0;
+    let prev = pts[0];
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      const dt = (p.t - prev.t) / 1000;
+      if (!(dt > 0) || dt > 0.2) {
+        prev = p;
+        continue;
+      }
+      const a = 1 / (1 + 2 * Math.PI * lowHz * dt);
+      hpX = a * (hpX + p.x - prev.x);
+      hpY = a * (hpY + p.y - prev.y);
+      const b = (2 * Math.PI * highHz * dt) / (1 + 2 * Math.PI * highHz * dt);
+      lpX += b * (hpX - lpX);
+      lpY += b * (hpY - lpY);
+      sum += lpX * lpX + lpY * lpY;
+      n++;
+      prev = p;
+    }
+  }
+  return n ? Math.sqrt(sum / n) : 0;
 }
 
 function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }

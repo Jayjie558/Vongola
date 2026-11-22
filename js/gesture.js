@@ -13,6 +13,13 @@ const FINGERS = [
 ];
 const FINGER_NAMES = FINGERS.map((f) => f.name);
 
+// Writing pen poses: index out, middle/ring/pinky folded. The thumb is free,
+// so a relaxed pointing hand that classifies as `gun` still writes.
+export const WRITE_GESTURES = new Set(['point', 'gun']);
+export function isWriteGesture(label) {
+  return WRITE_GESTURES.has(label);
+}
+
 export const GESTURE_LABELS = {
   fist: '握拳',
   open: '张手',

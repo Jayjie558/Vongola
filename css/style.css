@@ -23,7 +23,8 @@ body {
 }
 
 #gl-canvas,
-#fire-canvas {
+#fire-canvas,
+#ink-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -190,6 +191,28 @@ body {
   margin-top: 8px;
   font-size: 14px;
   color: rgba(255, 255, 255, 0.7);
+}
+
+/* Writing tasks: keep the countdown compact and above the trace target. */
+#protocol-overlay.writing {
+  justify-content: flex-start;
+  padding-top: 72px;
+  background: none;
+}
+
+#protocol-overlay.writing #protocol-count {
+  font-size: 44px;
+  text-shadow: 0 0 22px rgba(255, 140, 50, 0.6);
+}
+
+#protocol-overlay.writing #protocol-task {
+  margin-top: 2px;
+  font-size: 16px;
+}
+
+#protocol-overlay.writing #protocol-hint {
+  margin-top: 3px;
+  font-size: 12px;
 }
 
 #result-panel {

@@ -37,7 +37,9 @@ export function createSignalPanel({ params }) {
         ? '波形为掌心翻转角（度）· S 关闭'
         : def.metric === 'none'
           ? '选择测量协议后显示 · S 关闭'
-          : '虚线 p5 / p95 · 橙带 = 幅度下限 · S 关闭';
+          : def.metric === 'writing'
+            ? '书写任务不显示波形 · S 关闭'
+            : '虚线 p5 / p95 · 橙带 = 幅度下限 · S 关闭';
     }
   }
 
@@ -55,7 +57,7 @@ export function createSignalPanel({ params }) {
     for (const row of rows) {
       const hand = snap.hands[row.side];
       drawWave(row.canvas, hand, def.metric, now, snap.windowMs, row.color);
-      row.stats.textContent = def.metric === 'none'
+      row.stats.textContent = def.metric === 'none' || def.metric === 'writing'
         ? '—'
         : formatStats(hand, def.metric);
     }
@@ -80,7 +82,14 @@ function drawWave(canvas, hand, metric, now, windowMs, color) {
 
   const points = (hand?.points || []).filter((p) => p.t >= now - windowMs);
   if (!points.length) {
-    drawEmptyText(ctx, metric === 'none' ? '选择测量协议' : '未检测到手', W, H);
+    drawEmptyText(
+      ctx,
+      metric === 'none' ? '选择测量协议'
+        : metric === 'writing' ? '书写任务不显示波形'
+          : '未检测到手',
+      W,
+      H,
+    );
     return;
   }
 

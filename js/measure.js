@@ -86,6 +86,9 @@ function handSample(slot, now) {
   const input = slot.lastInput;
   return {
     label: input ? input.label : null,
+    // Gesture at sample time (point/gun = pen down for the writing protocol).
+    // Older recordings do not have it; the analyzer falls back to gaps.
+    gesture: slot.gesture ? slot.gesture.label : null,
     score: input && input.score != null ? Math.round(input.score * 1e4) / 1e4 : null,
     ageMs: input && input.t != null ? Math.max(0, Math.round(now - input.t)) : 0,
     landmarks: slot.lastLms.map((p) => [
